@@ -4,6 +4,8 @@ A lightweight, native Linux performance overlay for SteamVR, written in Rust. It
 
 No MangoHud, fpsVR, WayVR, WiVRn, Python, background daemon, or desktop window is required.
 
+![vrperf performance overlay](screenshots/vrperf.jpg)
+
 ## Features
 
 - CPU and GPU application frame-time graphs, with a reference line for the current refresh-rate frame budget.
