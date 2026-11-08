@@ -202,6 +202,10 @@ src/config.rs               Command-line settings
 src/overlay.rs              Panel visibility and tracking transforms
 ```
 
+### Acknowledgement
+
+vrperf was developed with the assistance of OpenAI's ChatGPT, which was used to help write, refine and troubleshoot the code. Development, testing and validation were carried out on Arch Linux with SteamVR and Steam Frame.
+
 ## Licence and API references
 
 GNU GPL version 3 only (`GPL-3.0-only`). See [LICENSE](LICENSE).
