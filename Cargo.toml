@@ -1,0 +1,18 @@
+[package]
+name = "vrperf"
+version = "1.11.0"
+edition = "2024"
+license = "GPL-3.0-only"
+description = "Minimal native Linux SteamVR performance overlay"
+
+[dependencies]
+openvr = "=0.9.0"
+openvr_sys = "=2.1.4"
+font8x8 = { version = "0.3.1", default-features = false, features = ["std", "unicode"] }
+libc = "0.2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true

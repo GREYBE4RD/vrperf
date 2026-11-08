@@ -1,0 +1,352 @@
+use font8x8::{BASIC_FONTS, UnicodeFonts};
+use std::collections::VecDeque;
+use crate::devices::{self, DeviceStats};
+use crate::hardware::HardwareStats;
+use crate::timing::{FrameMonitor, FrameSample};
+
+// Wide and shallow, with hardware values above and battery/time below graphs.
+pub const WIDTH: usize = 864;
+pub const HEIGHT: usize = 160;
+// Reserve a fixed left column for readable, stable 2x frame-time values.
+const GRAPH_X: i32 = 194;
+const GRAPH_W: i32 = WIDTH as i32 - GRAPH_X - 12;
+const FPS_HZ_MIN_GAP: i32 = 12;
+const TOP_ROW_OTHER_MIN_GAP: i32 = 4;
+const BG: [u8; 4] = [15, 20, 28, 245];
+const TEXT: [u8; 4] = [235, 242, 250, 255];
+const MUTED: [u8; 4] = [158, 175, 193, 255];
+const CPU: [u8; 4] = [96, 171, 255, 255];
+const GPU: [u8; 4] = [100, 225, 163, 255];
+const OVER: [u8; 4] = [255, 114, 102, 255];
+const DROPPED: [u8; 4] = [255, 74, 65, 255];
+const BUDGET: [u8; 4] = [207, 162, 84, 255];
+
+pub struct Renderer {
+    pixels: Vec<u8>,
+}
+
+impl Renderer {
+    pub fn new() -> Self { Self { pixels: vec![0; WIDTH * HEIGHT * 4] } }
+    pub fn pixels(&self) -> &[u8] { &self.pixels }
+
+    pub fn draw(&mut self, monitor: &FrameMonitor, hw: &HardwareStats,
+        devices: &DeviceStats, hz: f32) {
+        self.clear(BG);
+        let budget = 1000.0 / hz;
+
+        // All top-row fields use identical 2x (16px-high) font pixels.
+        // Trim unused glyph side bearings rather than shrinking RES/VRAM/RAM.
+        let fps = monitor.current_fps(hz).map_or_else(|| "FPS --".into(), |v| {
+            if v >= 100.0 { format!("FPS {v:.0}") } else { format!("FPS {v:.1}") }
+        });
+        let labels = [
+            (fps, TEXT),
+            (format!("{hz:.0}HZ"), MUTED),
+            (format!("RES {}", percent(devices.global_resolution_pct)), MUTED),
+            (format!("CPU {}", load_percent(hw.cpu_load)), TEXT),
+            (format!("GPU {}", load_percent(hw.gpu_load)), TEXT),
+            (format!("VRAM {}", used_total_short(hw.vram_used_gib, hw.vram_total_gib)), TEXT),
+            (format!("RAM {}", used_total_short(hw.ram_used_gib, hw.ram_total_gib)), TEXT),
+        ];
+        // Reserve each field's width for its longest normal value. Using
+        // current text widths made *all* subsequent fields shift whenever a
+        // percentage changed from one to two (or three) digits.
+        // Reserve the FPS/Hz gap before distributing the remaining space.
+        // The field positions depend only on their maximum widths, not on the
+        // current readings, so changing values cannot move other fields.
+        let positions = top_row_positions();
+        for ((text, color), x) in labels.iter().zip(positions) {
+            self.label_compact(x, 7, text, *color);
+        }
+        self.rect(10, 32, WIDTH as i32 - 20, 1, [59, 76, 94, 255]);
+
+        let latest = monitor.latest();
+        // Single-line labels and frame times. The value column is fixed and
+        // zero-padded below 100 ms, so 09.2MS -> 12.3MS never shifts the graph.
+        self.label(12, 48, "CPU", 2, CPU);
+        self.label(70, 48, &frame_time_text(latest.map(|f| f.cpu_ms)), 2, TEXT);
+        self.graph(&monitor.samples, monitor.is_recent(), GRAPH_X, 38, GRAPH_W, 37,
+            budget, |s| s.cpu_ms, CPU);
+        self.rect(10, 79, WIDTH as i32 - 20, 1, [45, 59, 75, 255]);
+        self.label(12, 94, "GPU", 2, GPU);
+        self.label(70, 94, &frame_time_text(latest.map(|f| f.gpu_ms)), 2, TEXT);
+        self.graph(&monitor.samples, monitor.is_recent(), GRAPH_X, 83, GRAPH_W, 38,
+            budget, |s| s.gpu_ms, GPU);
+        self.rect(10, 129, WIDTH as i32 - 20, 1, [59, 76, 94, 255]);
+
+        // Bottom: headset and controller batteries, scene drops and local time.
+        self.label(10, 138, &format!("HMD {}", percent(devices.hmd)), 2, TEXT);
+        self.label(164, 138, &format!("L {}", percent(devices.left)), 2, TEXT);
+        self.label(282, 138, &format!("R {}", percent(devices.right)), 2, TEXT);
+        let drops = if monitor.is_active() { monitor.dropped.to_string() }
+            else { "--".to_string() };
+        self.label(412, 138, &format!("DROP {drops}"), 2, MUTED);
+        let clock = devices::local_clock();
+        let clock_x = WIDTH as i32 - 12 - clock.chars().count() as i32 * 16;
+        let budget_text = format!("BUDGET {budget:.2}MS");
+        self.label_compact(clock_x - compact_width(&budget_text) - 18, 138,
+            &budget_text, MUTED);
+        self.label(clock_x, 138, &clock, 2, TEXT);
+    }
+
+    fn graph(&mut self, history: &VecDeque<FrameSample>, active: bool,
+        x: i32, y: i32, w: i32, h: i32, budget: f32,
+        value: impl Fn(&FrameSample) -> f32, color: [u8; 4]) {
+        self.rect(x, y, w, h, [21, 30, 40, 255]);
+        let baseline_y = y + h - 1;
+        let budget_y = baseline_y - h / 2;
+        for px in (x..x + w).step_by(5) { self.rect(px, budget_y, 3, 1, BUDGET); }
+        if !active { return; }
+        let mut previous: Option<(i32, i32)> = None;
+        for (i, frame) in history.iter().rev().take(w as usize).enumerate() {
+            let sx = x + w - 1 - i as i32;
+            let ms = value(frame);
+            let amount = (ms / (budget * 2.0)).clamp(0.0, 1.0);
+            let sy = baseline_y - (amount * (h - 1) as f32).round() as i32;
+            let ink = if ms > budget { OVER } else { color };
+            if let Some((old_x, old_y)) = previous {
+                self.line(sx, sy, old_x, old_y, ink);
+            } else { self.pixel(sx, sy, ink); }
+            previous = Some((sx, sy));
+        }
+        // Draw markers after the traces, so subsequent line segments cannot
+        // cover the red indicator. Same sample position in both graphs.
+        for (i, frame) in history.iter().rev().take(w as usize).enumerate() {
+            if frame.dropped > 0 {
+                let sx = x + w - 1 - i as i32;
+                self.rect(sx, y, 1, h, DROPPED);
+            }
+        }
+    }
+
+    // Same 2x pixel size as the existing 16px labels, but with proportional
+    // character advances. This frees space without shrinking the glyphs.
+    fn label_compact(&mut self, x: i32, y: i32, text: &str, color: [u8; 4]) {
+        let mut cursor = x;
+        for ch in text.chars() {
+            if let Some(bitmap) = BASIC_FONTS.get(ch) {
+                if let Some((first, last)) = glyph_columns(&bitmap) {
+                    for (row, bits) in bitmap.iter().enumerate() {
+                        for col in first..=last {
+                            if *bits & (1_u8 << col) != 0 {
+                                self.rect(cursor + (col - first) * 2, y + row as i32 * 2,
+                                    2, 2, color);
+                            }
+                        }
+                    }
+                }
+            }
+            cursor += compact_advance(ch);
+        }
+    }
+
+    fn clear(&mut self, rgba: [u8; 4]) {
+        for pixel in self.pixels.chunks_exact_mut(4) { pixel.copy_from_slice(&rgba); }
+    }
+    fn pixel(&mut self, x: i32, y: i32, color: [u8; 4]) {
+        if x < 0 || y < 0 || x >= WIDTH as i32 || y >= HEIGHT as i32 { return; }
+        let index = (y as usize * WIDTH + x as usize) * 4;
+        self.pixels[index..index + 4].copy_from_slice(&color);
+    }
+    fn rect(&mut self, x: i32, y: i32, w: i32, h: i32, rgba: [u8; 4]) {
+        for py in y..y + h { for px in x..x + w { self.pixel(px, py, rgba); } }
+    }
+    fn line(&mut self, mut x0: i32, mut y0: i32, x1: i32, y1: i32, rgba: [u8; 4]) {
+        let dx = (x1 - x0).abs();
+        let dy = -(y1 - y0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+        loop {
+            self.pixel(x0, y0, rgba);
+            if x0 == x1 && y0 == y1 { break; }
+            let twice_error = 2 * err;
+            if twice_error >= dy { err += dy; x0 += sx; }
+            if twice_error <= dx { err += dx; y0 += sy; }
+        }
+    }
+    fn label(&mut self, x: i32, y: i32, text: &str, scale: i32, color: [u8; 4]) {
+        for (index, char) in text.chars().enumerate() {
+            let Some(bitmap) = BASIC_FONTS.get(char) else { continue; };
+            let ox = x + index as i32 * 8 * scale;
+            for (row, byte) in bitmap.iter().enumerate() {
+                for col in 0..8 {
+                    if (*byte & (1_u8 << col)) != 0 {
+                        self.rect(ox + col * scale, y + row as i32 * scale,
+                            scale, scale, color);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Bitmap glyphs are 8x8. Trim blank columns but retain 2x pixel blocks,
+// ensuring the text stays at the same readable height as every other label.
+fn glyph_columns(bitmap: &[u8; 8]) -> Option<(i32, i32)> {
+    let ink = bitmap.iter().fold(0_u8, |mask, bits| mask | bits);
+    if ink == 0 { return None; }
+    Some((ink.trailing_zeros() as i32, 7 - ink.leading_zeros() as i32))
+}
+fn compact_advance(ch: char) -> i32 {
+    // Equal digit advances keep numbers and the trailing % symbol in place,
+    // even though the individual bitmap glyphs have different widths.
+    if ch.is_ascii_digit() || ch == '-' { return 14; }
+    match BASIC_FONTS.get(ch).and_then(|bitmap| glyph_columns(&bitmap)) {
+        Some((first, last)) => (last - first + 1) * 2 + 2,
+        None => 8, // Spaces: keep a visible gap without using a full 16px cell.
+    }
+}
+fn compact_width(text: &str) -> i32 {
+    (text.chars().map(compact_advance).sum::<i32>() - 2).max(0)
+}
+
+// Constant widths: changing values must never reflow the top row.
+fn top_slot_widths() -> [i32; 7] {
+    let mut widths = ["FPS 99.9", "144HZ", "RES 1000%", "CPU 100%", "GPU 100%",
+        "VRAM 16/16G", "RAM 32/32G"].map(compact_width);
+    // With triple-digit FPS the display omits decimals.
+    widths[0] = widths[0].max(compact_width("FPS 240"));
+    widths
+}
+
+// Top-row starts use fixed worst-case field widths. The FPS/Hz gap is a
+// hard minimum of 12 px, even when the other fields consume most of the row.
+// The remaining gaps have a 4 px minimum and share any spare pixels. This
+// preserves the 864 px panel and the fixed positions of all seven fields.
+fn top_row_positions() -> [i32; 7] {
+    let widths = top_slot_widths();
+    let occupied: i32 = widths.iter().sum();
+    let extra_space = WIDTH as i32 - 20 - occupied
+        - FPS_HZ_MIN_GAP - 5 * TOP_ROW_OTHER_MIN_GAP;
+    debug_assert!(extra_space >= 0, "top-row fields exceed the available width");
+    let distributed = extra_space.max(0) / 6;
+    let remainder = extra_space.max(0) % 6;
+
+    let mut positions = [0; 7];
+    let mut x = 10;
+    for (i, width) in widths.iter().enumerate() {
+        positions[i] = x;
+        if i < 6 {
+            let minimum = if i == 0 { FPS_HZ_MIN_GAP }
+                else { TOP_ROW_OTHER_MIN_GAP };
+            x += *width + minimum + distributed + i32::from((i as i32) < remainder);
+        }
+    }
+    positions
+}
+
+// The 8x8 bitmap font uses fixed 16px character cells at scale 2.
+// 09.2MS and 12.3MS therefore occupy identical space. We also reserve
+// room for rare three-digit timings, without moving the graph start.
+fn frame_time_text(value: Option<f32>) -> String {
+    match value {
+        Some(ms) if ms.is_finite() && (0.0..100.0).contains(&ms) => format!("{ms:04.1}MS"),
+        Some(ms) if ms.is_finite() && (100.0..1000.0).contains(&ms) => format!("{ms:.1}MS"),
+        Some(ms) if ms.is_finite() && ms >= 1000.0 => "999+MS".into(),
+        _ => "--.-MS".into(),
+    }
+}
+
+fn percent<T: Into<u16>>(value: Option<T>) -> String {
+    value.map_or_else(|| "--%".to_string(), |v| format!("{:02}%", v.into()))
+}
+fn load_percent(value: Option<f32>) -> String {
+    value.filter(|v| v.is_finite() && *v >= 0.0)
+        .map_or_else(|| "--%".to_string(), |v| format!("{:02}%", v.round() as u16))
+}
+fn used_total_short(used: Option<f32>, total: Option<f32>) -> String {
+    match (used, total) {
+        (Some(used), Some(total)) => format!("{used:.0}/{total:.0}G"),
+        _ => "--/--G".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn full_size_top_row_fits() {
+        let occupied: i32 = top_slot_widths().iter().sum();
+        // Reserve the larger FPS/Hz gap, five other gaps and both margins.
+        assert!(occupied + 20 + FPS_HZ_MIN_GAP
+            + 5 * TOP_ROW_OTHER_MIN_GAP <= WIDTH as i32);
+    }
+    #[test]
+    fn compact_glyphs_keep_two_pixel_blocks() {
+        assert!(compact_width("RAM 15/32G") > 0);
+        assert!(compact_width("VRAM 12/16G") < 11 * 16);
+    }
+    #[test]
+    fn percentages_have_stable_widths_and_zero_padding() {
+        assert_eq!(percent(Some(1_u8)), "01%");
+        assert_eq!(percent(Some(20_u8)), "20%");
+        assert_eq!(percent(Some(100_u8)), "100%");
+        assert_eq!(percent(Some(250_u16)), "250%");
+        assert_eq!(load_percent(Some(1.0)), "01%");
+        assert_eq!(load_percent(Some(20.0)), "20%");
+        assert_eq!(compact_advance('1'), compact_advance('8'));
+        assert_eq!(compact_width("CPU 01%"), compact_width("CPU 20%"));
+    }
+    #[test]
+    fn top_row_slots_are_independent_of_current_metrics() {
+        let slots = top_slot_widths();
+        let xs = top_row_positions();
+        assert_eq!(xs[0], 10);
+        assert!(xs[6] + slots[6] <= WIDTH as i32 - 10);
+        assert!(slots[0] >= compact_width("FPS 99.9"));
+        // Check against reserved field boundaries, not shorter live values.
+        assert!(xs[1] - (xs[0] + slots[0]) >= FPS_HZ_MIN_GAP);
+        for i in 1..6 {
+            assert!(xs[i + 1] - (xs[i] + slots[i]) >= TOP_ROW_OTHER_MIN_GAP);
+        }
+        // Recalculating the positions cannot depend on changing statistics.
+        assert_eq!(top_row_positions(), xs);
+    }
+    #[test]
+    fn frame_time_labels_do_not_jump_between_single_and_double_digits() {
+        let single = frame_time_text(Some(9.2));
+        let double = frame_time_text(Some(12.3));
+        assert_eq!(single, "09.2MS");
+        assert_eq!(double, "12.3MS");
+        assert_eq!(single.len(), double.len());
+        assert_eq!(single.len() as i32 * 16, 96);
+        // Even 100.0MS stays inside the reserved left column.
+        assert!(70 + frame_time_text(Some(100.0)).len() as i32 * 16 < GRAPH_X);
+        assert_eq!(frame_time_text(None), "--.-MS");
+    }
+    #[test]
+    fn history_covers_entire_graph_without_resampling() {
+        assert!(crate::timing::MAX_HISTORY >= GRAPH_W as usize);
+        let mut r = Renderer::new();
+        let frame = FrameSample { cpu_ms: 5.0, gpu_ms: 4.0, dropped: 0 };
+        let history = VecDeque::from(vec![frame; GRAPH_W as usize]);
+        r.graph(&history, true, GRAPH_X, 38, GRAPH_W, 37, 11.11,
+            |f| f.cpu_ms, CPU);
+        let h = 37;
+        let baseline_y = 38 + h - 1;
+        let sy = baseline_y - ((5.0 / (11.11 * 2.0)) * (h - 1) as f32).round() as i32;
+        let idx = ((sy as usize * WIDTH) + GRAPH_X as usize) * 4;
+        assert_eq!(&r.pixels[idx..idx + 4], &CPU[..]);
+    }
+    #[test]
+    fn empty_canvas_draw_is_safe() {
+        let mut r = Renderer::new();
+        r.draw(&FrameMonitor::new(), &HardwareStats::default(), &DeviceStats::default(), 90.0);
+        assert_eq!(r.pixels.len(), WIDTH * HEIGHT * 4);
+    }
+    #[test]
+    fn dropped_frame_marker_is_drawn_on_graph() {
+        let mut r = Renderer::new();
+        let history = VecDeque::from([FrameSample { cpu_ms: 3.0, gpu_ms: 4.0, dropped: 2 }]);
+        r.graph(&history, true, 10, 10, 40, 20, 11.11, |s| s.cpu_ms, CPU);
+        let x = 10 + 40 - 1;
+        let offset = ((12_usize * WIDTH) + x as usize) * 4;
+        assert_eq!(&r.pixels[offset..offset + 4], &DROPPED[..]);
+    }
+    #[test]
+    fn formatting_missing_metrics_does_not_forge_numbers() {
+        assert_eq!(percent(None::<u8>), "--%");
+        assert_eq!(used_total_short(None, None), "--/--G");
+    }
+}
