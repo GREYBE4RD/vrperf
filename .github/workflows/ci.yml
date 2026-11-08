@@ -1,0 +1,18 @@
+name: Linux build and tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake clang libclang-dev libegl-dev libgl-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cargo build --release
+      - name: Unit tests
+        run: cargo test
