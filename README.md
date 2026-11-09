@@ -4,12 +4,16 @@ vrperf is a native Linux performance overlay for SteamVR. It shows your gaming P
 
 Choose a panel fixed in front of you (**HEAD**), or a watch attached to your **LEFT** or **RIGHT** controller. Watch positions can be adjusted and saved separately.
 
+![vrperf performance overlay](screenshots/vrperf.jpg)
+
 ## Using vrperf
 
 1. Start SteamVR. If vrperf is installed with automatic startup, it starts with SteamVR.
 2. Open the **SteamVR dashboard** and select the **vrperf** tab.
 3. Select **HEAD**, **LEFT**, or **RIGHT** to choose where the performance panel appears.
 4. Select **ON** or **OFF** to show or hide it. vrperf remembers your selection between sessions.
+
+![vrperf dashboard controls](screenshots/vrperf.on.off.jpg)
 
 **HEAD** stays fixed in your view. A calibrated **LEFT** or **RIGHT** watch appears when you turn it towards your eyes and look at it. It hides as soon as you turn away, without a fade or delay. Only one display mode is selected at a time.
 
