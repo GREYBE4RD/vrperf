@@ -13,6 +13,8 @@ Choose a panel fixed in front of you (**HEAD**), or a watch attached to your **L
 3. Select **HEAD**, **LEFT**, or **RIGHT** to choose where the performance panel appears.
 4. Select **ON** or **OFF** to show or hide it. vrperf remembers your selection between sessions.
 
+Please note, pictures are outdated and will be updated soon.
+
 ![vrperf dashboard controls](screenshots/vrperf.on.off.jpg)
 
 **HEAD** stays fixed in your view. A calibrated **LEFT** or **RIGHT** watch appears when you turn it towards your eyes and look at it. It hides as soon as you turn away, without a fade or delay. Only one display mode is selected at a time.
