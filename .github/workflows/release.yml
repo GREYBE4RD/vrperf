@@ -1,29 +1,52 @@
 name: Publish Linux binary release
+
 on:
   push:
     tags:
       - 'v*'
+  release:
+    types:
+      - published
 
 permissions:
   contents: write
+
+# Publishing a release in the web UI can also create a tag.
+# Serialise both events for the same tag to avoid competing uploads.
+concurrency:
+  group: linux-release-${{ github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out the released version
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref_name }}
       - name: Install Linux build dependencies
         run: sudo apt-get update && sudo apt-get install -y build-essential cmake clang libclang-dev libegl-dev libgl-dev
       - uses: dtolnay/rust-toolchain@stable
       - name: Test
-        run: cargo test
+        run: cargo test --locked
       - name: Build release binary
-        run: cargo build --release
+        run: cargo build --release --locked
+      - name: Set release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
       - name: Package binary
         run: |
-          tar -czf "vrperf-${GITHUB_REF_NAME}-linux-x86_64.tar.gz" -C target/release vrperf
-          sha256sum "vrperf-${GITHUB_REF_NAME}-linux-x86_64.tar.gz" > "vrperf-${GITHUB_REF_NAME}-linux-x86_64.tar.gz.sha256"
-      - name: Publish stable GitHub release
+          tar -czf "vrperf-${RELEASE_TAG}-linux-x86_64.tar.gz" -C target/release vrperf
+          sha256sum "vrperf-${RELEASE_TAG}-linux-x86_64.tar.gz" > "vrperf-${RELEASE_TAG}-linux-x86_64.tar.gz.sha256"
+      - name: Create release or attach binary to existing release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "vrperf-${GITHUB_REF_NAME}-linux-x86_64.tar.gz" "vrperf-${GITHUB_REF_NAME}-linux-x86_64.tar.gz.sha256" --title "vrperf $GITHUB_REF_NAME" --notes-file RELEASE_NOTES.md --verify-tag
+        run: |
+          ARCHIVE="vrperf-${RELEASE_TAG}-linux-x86_64.tar.gz"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$ARCHIVE" "$ARCHIVE.sha256" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$ARCHIVE" "$ARCHIVE.sha256" --title "vrperf $RELEASE_TAG" --notes-file RELEASE_NOTES.md --verify-tag
+          fi
