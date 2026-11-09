@@ -23,17 +23,18 @@ Please note, pictures are outdated and will be updated soon.
 
 ## Calibrating a watch
 
-**Close the SteamVR dashboard to move the watch.** Calibration works in SteamVR Home or **while you are in a game**. You do not need to exit the game.
+**You must close the SteamVR dashboard (using the dashboard button on your controller) to move the watch.** 
+Calibration works in SteamVR Home or **while you are in a game**. You do not need to exit the game.
 
 1. Open the SteamVR dashboard, select the **vrperf** tab, then choose **CAL LEFT** or **CAL RIGHT**.
-2. **Close the SteamVR dashboard completely.** The watch stays visible while you calibrate it.
-3. **Release, then hold the grip on the opposite controller.** Use your **right** controller to adjust the **left** watch, or your **left** controller to adjust the **right** watch. The trigger also works with supported bindings.
+2. **Close the SteamVR dashboard completely with the dashboard button on your controller.** The watch stays visible while you calibrate it.
+3. **Hold the grip on the opposite controller.** Use your **right** controller to adjust the **left** watch, or your **left** controller to adjust the **right** watch. The trigger also works with supported bindings.
 4. While holding the grip, move and rotate that controller. The watch follows it. Place the watch above your other wrist so you can read it comfortably.
-5. Release the grip to leave the watch in place. Hold it again to make further adjustments.
+5. Release the grip to leave the watch in place. Hold grip it again to make further adjustments.
 6. Reopen the SteamVR dashboard. If needed, use **-** and **+** to change watch size in 0.5 cm steps.
 7. Select **SAVE** to keep the position, angle and size. Select **CANCEL** to restore the previous calibration.
 
-Repeat for the other wrist if needed. Releasing the grip **does not save** your changes; you must select **SAVE**. Selecting another display mode before saving cancels the adjustment.
+Repeat for the other wrist if needed. Releasing the grip **does not save** your changes; you must select re-open the dashboard and select **SAVE**. Selecting another display mode before saving cancels the adjustment.
 
 Before its first saved calibration, a watch starts as a flat panel about **7 cm above its controller** and remains visible while tracked. After you save, normal angle-based visibility takes effect. Existing saved calibrations do not move when you upgrade.
 
