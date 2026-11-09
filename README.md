@@ -1,6 +1,8 @@
 # vrperf
 
-vrperf is a native Linux performance overlay for SteamVR. It shows your gaming PC's frame times, performance graphs and hardware statistics inside the headset. It was developed on Arch Linux with a Steam Frame and an AMD Radeon RX 9070 XT.
+vrperf is a native Linux PCVR performance overlay for SteamVR written in Rust. 
+
+It shows your gaming PC's frame times, performance graphs and hardware statistics inside the headset. It was developed on Arch Linux with a Steam Frame and an AMD Radeon RX 9070 XT.
 
 Choose a panel fixed in front of you (**HEAD**), or a watch attached to your **LEFT** or **RIGHT** controller. Watch positions can be adjusted and saved separately.
 
@@ -8,9 +10,9 @@ Choose a panel fixed in front of you (**HEAD**), or a watch attached to your **L
 
 ## Using vrperf
 
-1. Start SteamVR. If vrperf is installed with automatic startup, it starts with SteamVR.
-2. Open the **SteamVR dashboard** and select the **vrperf** tab.
-3. Select **HEAD**, **LEFT**, or **RIGHT** to choose where the performance panel appears.
+1. Start SteamVR. If vrperf is installed with automatic startup (default), it should start automatically when SteamVR is started.
+2. Open the **SteamVR dashboard** and select the **vrperf** tab (will show as a '?' icon but display vrperf when selected or hovered).
+3. Select **HEAD** (default), **LEFT**, or **RIGHT** to choose where the performance panel appears.
 4. Select **ON** or **OFF** to show or hide it. vrperf remembers your selection between sessions.
 
 Please note, pictures are outdated and will be updated soon.
@@ -19,19 +21,20 @@ Please note, pictures are outdated and will be updated soon.
 
 **HEAD** stays fixed in your view. A calibrated **LEFT** or **RIGHT** watch appears when you turn it towards your eyes and look at it. It hides as soon as you turn away, without a fade or delay. Only one display mode is selected at a time.
 
-**On first use**, an uncalibrated watch appears above its controller and stays visible so you can find it easily. Follow the steps below to place it where you want. Your saved position is kept when you update vrperf.
+**On first LEFT/RIGHT use**, a smaller performance overlay appears above the selected controller and stays visible so you can find it easily. Follow the steps below to place it where you want. Your saved position is kept when you update vrperf.
 
 ## Calibrating a watch
 
-**You must close the SteamVR dashboard (using the dashboard button on your controller) to move the watch.** 
-Calibration works in SteamVR Home or **while you are in a game**. You do not need to exit the game.
+In order to move or calibrate the smaller 'watch' performance overlay **You must close the SteamVR dashboard (using the dashboard button on your controller) to move the watch after selected LEFT or RIGHT.** 
+
+Calibration works both while loaded into a game or not. You do not need to exit the game. This enables you to position the display precisely while in game as to not cover anything important.
 
 1. Open the SteamVR dashboard, select the **vrperf** tab, then choose **CAL LEFT** or **CAL RIGHT**.
-2. **Close the SteamVR dashboard completely with the dashboard button on your controller.** The watch stays visible while you calibrate it.
+2. **Close the SteamVR dashboard completely with the Steam dashboard button on your controller.** The watch stays visible while you calibrate it. This should put you back in the game while you calibrate it or simply hide the SteamVR dashboard if you are yet to load into a game.
 3. **Hold the grip on the opposite controller.** Use your **right** controller to adjust the **left** watch, or your **left** controller to adjust the **right** watch. The trigger also works with supported bindings.
 4. While holding the grip, move and rotate that controller. The watch follows it. Place the watch above your other wrist so you can read it comfortably.
 5. Release the grip to leave the watch in place. Hold grip it again to make further adjustments.
-6. Reopen the SteamVR dashboard. If needed, use **-** and **+** to change watch size in 0.5 cm steps.
+6. Reopen the SteamVR dashboard and use the **-** and **+** to change watch size in 0.5 cm steps if needed.
 7. Select **SAVE** to keep the position, angle and size. Select **CANCEL** to restore the previous calibration.
 
 Repeat for the other wrist if needed. Releasing the grip **does not save** your changes; you must select re-open the dashboard and select **SAVE**. Selecting another display mode before saving cancels the adjustment.
