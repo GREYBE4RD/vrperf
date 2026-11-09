@@ -16,6 +16,38 @@ fn install_dir() -> Result<PathBuf, String> {
     Ok(PathBuf::from(home).join(".local/share/vrperf"))
 }
 
+// Keep the SteamVR action files beside the registered .vrmanifest, and
+// also install them for direct development builds (which may run without --install).
+pub fn ensure_input_assets() -> Result<PathBuf, String> {
+    let dir = install_dir()?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    for (name, contents) in [
+        ("actions.json", include_str!("../assets/steamvr/actions.json")),
+        ("bindings_frame_controller.json",
+            include_str!("../assets/steamvr/bindings_frame_controller.json")),
+        ("bindings_knuckles.json",
+            include_str!("../assets/steamvr/bindings_knuckles.json")),
+        ("bindings_oculus_touch.json",
+            include_str!("../assets/steamvr/bindings_oculus_touch.json")),
+        ("bindings_vive_controller.json",
+            include_str!("../assets/steamvr/bindings_vive_controller.json")),
+        ("bindings_vive_cosmos_controller.json",
+            include_str!("../assets/steamvr/bindings_vive_cosmos_controller.json")),
+        ("bindings_holographic_controller.json",
+            include_str!("../assets/steamvr/bindings_holographic_controller.json")),
+        ("bindings_hpmotioncontroller.json",
+            include_str!("../assets/steamvr/bindings_hpmotioncontroller.json")),
+    ] {
+        let path = dir.join(name);
+        if fs::read_to_string(&path).ok().as_deref() != Some(contents) {
+            let tmp = dir.join(format!("{name}.tmp"));
+            fs::write(&tmp, contents).map_err(|e| e.to_string())?;
+            fs::rename(tmp, &path).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(dir.join("actions.json"))
+}
+
 fn binary_path() -> Result<PathBuf, String> {
     let home = env::var_os("HOME").ok_or("HOME is not set")?;
     Ok(PathBuf::from(home).join(".local/bin/vrperf"))
@@ -53,6 +85,7 @@ fn manifest(binary: &Path) -> String {
     "binary_path": {escaped_path},
     "binary_path_linux": {escaped_path},
     "is_dashboard_overlay": true,
+    "action_manifest_path": "actions.json",
     "strings": {{ "en_us": {{ "name": "vrperf", "description": "Linux PC VR performance overlay" }} }}
   }}]
 }}
@@ -110,7 +143,7 @@ pub fn install() -> Result<(), Box<dyn Error>> {
     let dir = install_dir()?;
     let binary = binary_path()?;
     let bin_dir = binary.parent().ok_or("Invalid executable path")?;
-    fs::create_dir_all(&dir)?;
+    ensure_input_assets()?;
     fs::create_dir_all(bin_dir)?;
 
     // Use a temporary file and rename to avoid leaving a partial executable.
@@ -175,6 +208,52 @@ pub fn visibility_path() -> Option<PathBuf> {
     env::var_os("HOME").map(|home| PathBuf::from(home).join(".config/vrperf/visible"))
 }
 
+fn preference_path(name: &str) -> Option<PathBuf> {
+    visibility_path().map(|path| path.with_file_name(name))
+}
+
+pub fn read_mode() -> crate::config::Mode {
+    preference_path("mode")
+        .and_then(|path| fs::read_to_string(path).ok())
+        .and_then(|text| crate::config::Mode::from_name(text.trim()))
+        .unwrap_or(crate::config::Mode::Head)
+}
+
+pub fn write_mode(mode: crate::config::Mode) -> Result<(), String> {
+    write_preference("mode", mode.name())
+}
+
+// Watch calibration is saved separately for each controller. Older flat-wrist
+// settings and opacity preferences are ignored, not deleted.
+pub fn read_watch_mount(mode: crate::config::Mode) -> Option<crate::calibration::WatchMount> {
+    let name = match mode {
+        crate::config::Mode::Left => "watch_left",
+        crate::config::Mode::Right => "watch_right",
+        crate::config::Mode::Head => return None,
+    };
+    preference_path(name)
+        .and_then(|p| fs::read_to_string(p).ok())
+        .and_then(|s| crate::calibration::deserialize(&s))
+}
+
+pub fn write_watch_mount(mode: crate::config::Mode,
+    mount: &crate::calibration::WatchMount) -> Result<(), String> {
+    let name = match mode {
+        crate::config::Mode::Left => "watch_left",
+        crate::config::Mode::Right => "watch_right",
+        crate::config::Mode::Head => return Err("Cannot calibrate the head overlay".into()),
+    };
+    if !crate::calibration::valid(mount) { return Err("Invalid watch calibration".into()); }
+    write_preference(name, crate::calibration::serialize(mount).trim_end())
+}
+
+fn write_preference(name: &str, value: &str) -> Result<(), String> {
+    let path = preference_path(name).ok_or("Could not determine configuration directory")?;
+    let dir = path.parent().ok_or("Invalid configuration directory")?;
+    fs::create_dir_all(dir).map_err(|error| error.to_string())?;
+    fs::write(path, format!("{value}\n")).map_err(|error| error.to_string())
+}
+
 pub fn read_visible() -> bool {
     let Some(path) = visibility_path() else { return true; };
     fs::read_to_string(path).map(|s| s.trim() != "off").unwrap_or(true)
@@ -195,6 +274,7 @@ mod tests {
         let s = manifest(Path::new("/home/test/.local/bin/vrperf"));
         assert!(s.contains("\"app_key\": \"vrperf.linux.dashboard\""));
         assert!(s.contains("\"is_dashboard_overlay\": true"));
+        assert!(s.contains("\"action_manifest_path\": \"actions.json\""));
         assert!(s.contains("\"binary_path_linux\""));
         assert!(s.contains("/home/test/.local/bin/vrperf"));
     }

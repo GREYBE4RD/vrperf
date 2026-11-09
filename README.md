@@ -1,414 +1,225 @@
 # vrperf
 
-A lightweight, native Linux performance overlay for SteamVR, written in Rust. It displays **PC-side** frame timings and system statistics inside the headset while streaming SteamVR games, including to the Steam Frame.
+vrperf is a native Linux performance overlay for SteamVR. It shows your gaming PC's frame times, performance graphs and hardware statistics inside the headset. It was developed on Arch Linux with a Steam Frame and an AMD Radeon RX 9070 XT.
 
-No MangoHud, fpsVR, WayVR, WiVRn, Python, background daemon, or desktop window is required.
+Choose a panel fixed in front of you (**HEAD**), or a watch attached to your **LEFT** or **RIGHT** controller. Watch positions can be adjusted and saved separately.
 
-![vrperf performance overlay](screenshots/vrperf.jpg)
+## Using vrperf
 
-## Features
+1. Start SteamVR. If vrperf is installed with automatic startup, it starts with SteamVR.
+2. Open the **SteamVR dashboard** and select the **vrperf** tab.
+3. Select **HEAD**, **LEFT**, or **RIGHT** to choose where the performance panel appears.
+4. Select **ON** or **OFF** to show or hide it. vrperf remembers your selection between sessions.
 
-- CPU and GPU application frame-time graphs, with a reference line for the current refresh-rate frame budget.
-- FPS and dropped-frame markers in the graph history.
-- Linux CPU and GPU utilisation, system RAM and graphics memory usage (where supported).
-- Headset and controller battery percentages, SteamVR global resolution setting and local time.
-- Compact, head-fixed overlay near the lower centre of the headset view.
-- A **vrperf** tab in the SteamVR dashboard to show or hide the overlay.
-- Automatic startup with SteamVR after installation.
-- Remembers the last ON/OFF state between SteamVR sessions.
-- Single native Rust executable. Optional vendor monitoring libraries load only when needed.
+**HEAD** stays fixed in your view. A calibrated **LEFT** or **RIGHT** watch appears when you turn it towards your eyes and look at it. It hides as soon as you turn away, without a fade or delay. Only one display mode is selected at a time.
 
-## How it works
+**On first use**, an uncalibrated watch appears above its controller and stays visible so you can find it easily. Follow the steps below to place it where you want. Your saved position is kept when you update vrperf.
 
-Once installed, vrperf starts automatically with SteamVR and displays a compact performance overlay near the bottom of your headset's view. It runs natively on Linux and uses SteamVR's OpenVR interface to collect frame timings and headset information.
+## Calibrating a watch
 
-### Understanding the performance graphs
+**Close the SteamVR dashboard to move the watch.** Calibration works in SteamVR Home or **while you are in a game**. You do not need to exit the game.
 
-The CPU and GPU graphs show application frame times reported by SteamVR, measured in milliseconds (ms).
+1. Open the SteamVR dashboard, select the **vrperf** tab, then choose **CAL LEFT** or **CAL RIGHT**.
+2. **Close the SteamVR dashboard completely.** The watch stays visible while you calibrate it.
+3. **Release, then hold the grip on the opposite controller.** Use your **right** controller to adjust the **left** watch, or your **left** controller to adjust the **right** watch. The trigger also works with supported bindings.
+4. While holding the grip, move and rotate that controller. The watch follows it. Place the watch above your other wrist so you can read it comfortably.
+5. Release the grip to leave the watch in place. Hold it again to make further adjustments.
+6. Reopen the SteamVR dashboard. If needed, use **-** and **+** to change watch size in 0.5 cm steps.
+7. Select **SAVE** to keep the position, angle and size. Select **CANCEL** to restore the previous calibration.
 
-Lower frame times indicate faster rendering. The horizontal reference line represents the time available to render each frame at the headset's current refresh rate.
+Repeat for the other wrist if needed. Releasing the grip **does not save** your changes; you must select **SAVE**. Selecting another display mode before saving cancels the adjustment.
 
-For example:
+Before its first saved calibration, a watch starts as a flat panel about **7 cm above its controller** and remains visible while tracked. After you save, normal angle-based visibility takes effect. Existing saved calibrations do not move when you upgrade.
 
-| Refresh rate | Frame budget |
-| --- | --- |
-| 72 Hz | 13.89 ms |
-| 90 Hz | 11.11 ms |
-| 120 Hz | 8.33 ms |
-| 144 Hz | 6.94 ms |
+## Installing vrperf
 
-Frame times above the reference line indicate that the application is exceeding its frame budget.
+### Download a ready-built version
 
-Dropped-frame markers show frames identified through SteamVR's timing information.
+Where a Linux binary is available, get it from [GitHub Releases](https://github.com/GREYBE4RD/vrperf/releases). A prebuilt version does not need Rust or other build tools.
 
-These measurements describe **PC-side rendering performance**. They do not include video encoding, network transmission or headset decoding latency.
-
-### Show or hide the overlay
-
-Open the **SteamVR dashboard** and select the **vrperf** tab. Use the **ON/OFF** button to show or hide the performance overlay.
-
-**The overlay remembers its last ON/OFF state.** If you turn it off, it will remain hidden the next time SteamVR starts. The same applies when turning it on.
-
-Hiding the overlay does not stop vrperf from running. To stop it completely, disable automatic startup and restart SteamVR, or close the vrperf process.
-
-![vrperf dashboard controls](screenshots/vrperf.on.off.jpg)
-
-### Automatic startup
-
-vrperf is registered to launch automatically with SteamVR during installation.
-
-To enable or disable automatic startup:
-
-1. Open the SteamVR window on your desktop.
-2. Go to **Settings → Startup / Shutdown**.
-3. Select **Choose Startup Overlay Apps**.
-4. Enable or disable **vrperf**.
-
-Disabling automatic startup does not uninstall vrperf. You can still launch it manually using `vrperf` in a terminal, provided `~/.local/bin` is in your `PATH`.
-
-Automatic startup and overlay visibility are separate settings. You can leave vrperf running automatically while keeping the overlay hidden until you need it.
-
-## Compatibility and support status
-
-| Component | Status |
-| --- | --- |
-| Linux SteamVR + Steam Frame | Tested on Arch Linux |
-| AMD Radeon RX 9070 XT / RADV | **Tested, stable** |
-| Other AMD GPUs | Best effort, untested |
-| NVIDIA proprietary driver | Experimental, untested |
-| Intel `i915` / `xe` | Experimental, untested |
-| Other headsets and GPU configurations | Untested |
-
-The performance graphs and headset data use **OpenVR**, not an AMD-specific interface.
-
-Hardware utilisation uses separate, optional monitoring backends:
-
-- **AMD:** Linux `amdgpu` sysfs interfaces. No additional vendor library required.
-- **NVIDIA:** NVML (`libnvidia-ml.so.1`) from the proprietary NVIDIA driver. No `nvidia-smi` subprocess is used. The device is matched by PCI address.
-- **Intel:** Level Zero Sysman (`libze_loader.so.1`) with a compatible Intel driver. The first Intel Sysman device is used. On systems with multiple Intel GPUs, device selection may be incorrect. Only dedicated device-local memory is displayed as VRAM.
-
-If a monitoring library or measurement is unavailable, the affected metric displays `--`.
-
-**VR frame timings should still work on unsupported GPU monitoring configurations**, provided SteamVR and its OpenVR timing interface are functioning.
-
-NVIDIA and Intel support has not yet been tested on physical hardware.
-
-### Multi-GPU systems
-
-If both AMD and NVIDIA GPUs are present, the initial detection prefers NVIDIA, followed by AMD and then Intel.
-
-This may not match the GPU SteamVR uses on hybrid systems. Manual GPU selection is not yet supported.
-
-## Installation
-
-You can download a precompiled binary from GitHub Releases or build vrperf from source.
-
-### Runtime requirements
-
-The precompiled binary does **not** require Rust, Cargo or other build tools.
-
-- **OS:** x86-64 Linux.
-- **SteamVR:** Installed and working with a connected VR headset.
-- **Graphics:** Working OpenGL/EGL drivers (`libEGL.so.1` and `libGL.so.1`).
-- **System libraries:** Compatible glibc and other standard Linux libraries.
-- **AMD:** AMDGPU kernel driver for GPU monitoring.
-- **NVIDIA:** Proprietary NVIDIA driver with NVML for GPU monitoring (experimental).
-- **Intel:** Level Zero loader and compatible Intel runtime for GPU monitoring (experimental).
-
-NVIDIA and Intel monitoring libraries are optional. If unavailable, vrperf should still display SteamVR frame timings, but some hardware statistics may show `--`.
-
-Precompiled binaries may not work on every Linux distribution due to differences in system libraries. If the binary fails to run, try building from source.
-
-### Install a precompiled binary
-
-Download the Linux x86-64 archive from the [GitHub Releases](https://github.com/GREYBE4RD/vrperf/releases) page.
-
-Extract the archive:
+Extract the downloaded Linux x86-64 archive, start SteamVR, and run the extracted executable with `--install`. For example, for a v1.24.0 release archive:
 
 ```bash
-tar -xzf vrperf-v1.11.0-linux-x86_64.tar.gz
-```
-
-With SteamVR running, install vrperf:
-
-```bash
+tar -xzf vrperf-v1.24.0-linux-x86_64.tar.gz
 ./vrperf --install
 ```
 
-The installer:
+Prebuilt binaries depend on compatible Linux system libraries. If one does not work on your distribution, build it from source instead.
 
-- Copies the executable to `~/.local/bin/vrperf`.
-- Creates a SteamVR application manifest under `~/.local/share/vrperf/`.
-- Registers vrperf as a SteamVR dashboard overlay.
-- Enables automatic startup with SteamVR.
+### Build from source
 
-Restart SteamVR to activate automatic startup.
+You need Linux x86-64, working SteamVR and OpenGL/EGL drivers, Rust supporting the 2024 edition, a C/C++ compiler, CMake, and Clang/libclang. The first build also downloads Rust dependencies.
 
-**Note:** The precompiled binary may depend on shared libraries from the distribution used to build it. Building from source is recommended if you encounter compatibility issues.
-
-## Building from source
-
-### Build prerequisites
-
-Building vrperf requires:
-
-- Rust and Cargo, using a stable toolchain supporting Rust 2024 edition.
-- A C/C++ compiler and standard development tools.
-- CMake.
-- Clang and libclang for the OpenVR bindings.
-- Internet access for the initial Cargo dependency download.
-
-These dependencies are required only for compilation. They are not needed to run the precompiled binary.
-
-### Arch Linux
-
-Install the required packages:
+On Arch Linux, install the build tools:
 
 ```bash
 sudo pacman -S --needed rust base-devel cmake clang libglvnd
 ```
 
-Arch Linux is the development distribution used for the tested AMD build.
-
-### Ubuntu / Debian (untested)
+On Ubuntu/Debian, install them with:
 
 ```bash
 sudo apt install cargo rustc build-essential cmake clang libclang-dev libegl-dev libgl-dev
 ```
 
-Use a current stable Rust toolchain that supports edition 2024. Distribution packages may be too old. If necessary, install Rust using [rustup](https://rustup.rs/).
+Your distribution's Rust version must support the 2024 edition. If it does not, use a current Rust toolchain from [rustup](https://rustup.rs/).
 
-### Fedora (untested)
-
-```bash
-sudo dnf install rust cargo gcc-c++ cmake clang-devel libglvnd-devel
-```
-
-NVIDIA GPU utilisation additionally requires NVIDIA's NVML runtime library, normally installed with the proprietary driver.
-
-Intel GPU monitoring requires the Level Zero loader and a compatible Intel compute runtime.
-
-Neither library is required simply to launch vrperf.
-
-### Compile vrperf
-
-Clone the repository:
+Download a versioned source ZIP, extract it, and open a terminal in its project directory. For the v1.24 testing archive:
 
 ```bash
-git clone https://github.com/GREYBE4RD/vrperf.git
+unzip vrperf-v1.24.zip && cd vrperf-v1.24
 ```
 
-Enter the project directory:
+Or, once the version you want has been published to GitHub, clone the repository:
 
 ```bash
-cd vrperf
+git clone https://github.com/GREYBE4RD/vrperf.git && cd vrperf
 ```
 
-Build the release executable:
+Build and run the tests:
 
 ```bash
-cargo build --release --locked
+cargo build --release && cargo test
 ```
 
-Run the automated tests:
-
-```bash
-cargo test --locked
-```
-
-The compiled executable will be available at:
-
-```text
-target/release/vrperf
-```
-
-With SteamVR running, test vrperf manually:
+The executable is now `target/release/vrperf`. With SteamVR running, you can test it manually before installing:
 
 ```bash
 ./target/release/vrperf
 ```
 
-Stop the manually launched instance with `Ctrl+C` before installing it.
-
-### Install and enable SteamVR autostart
-
-With SteamVR running and no manually running vrperf instance, execute:
+Stop this test copy before installing to avoid two vrperf instances running at once. Then install:
 
 ```bash
 ./target/release/vrperf --install
 ```
 
-This installs the executable to `~/.local/bin/vrperf`, creates the SteamVR application manifest and enables automatic startup.
+The installer copies vrperf to `~/.local/bin/vrperf`, installs the SteamVR registration and controller bindings under `~/.local/share/vrperf/`, and enables automatic startup. **Fully restart SteamVR** after installation.
 
-Restart SteamVR to test automatic startup.
+To change automatic startup later, open **SteamVR Settings > Startup / Shutdown > Choose Startup Overlay Apps**. This is separate from vrperf's ON/OFF button.
 
-The installer uses SteamVR's native application registration. It does not create a systemd service or require a separate launcher.
+## Updating vrperf
 
-### PATH and the vrperf terminal command
+**You do not need to uninstall the old version.** Your saved mode, ON/OFF state, and left/right watch calibrations remain in place.
 
-The installer places the executable in:
+1. Download the new release or source archive. If you build from source, compile and test the newer version first.
+2. Start SteamVR. Stop the running copy of vrperf, including any copy started automatically.
+3. Run **the new executable** with `--install`. For a source build, run:
 
-```text
-~/.local/bin/vrperf
-```
+   ```bash
+   ./target/release/vrperf --install
+   ```
 
-Some Linux distributions do not add `~/.local/bin` to the user's `PATH` automatically.
+4. **Fully restart SteamVR.** Check the vrperf tab and your saved watch positions.
 
-Check your current `PATH`:
+The installer replaces the old binary and updates SteamVR's controller binding files. You do not need to recalibrate watches after updating. If you use a Git checkout, run `git pull` before rebuilding; downloaded ZIP folders do not support `git pull`.
 
-```bash
-printf '%s\n' "$PATH" | tr ':' '\n'
-```
-
-If `$HOME/.local/bin` is missing, add the following line to your login shell configuration. For Bash, this is commonly `~/.profile`:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-Log out and back in, or source the updated file to apply the change.
-
-Verify that vrperf is available:
-
-```bash
-command -v vrperf
-```
-
-The expected location is:
-
-```text
-/home/YOUR_USER/.local/bin/vrperf
-```
-
-**SteamVR automatic startup does not require `~/.local/bin` in your `PATH`.** It uses the executable's absolute path.
-
-### Updating vrperf
-
-To update an existing installation:
-
-1. Download or build the newer version.
-2. Start SteamVR.
-3. Stop any manually running vrperf instance.
-4. Run the newer executable with `--install`.
-5. Restart SteamVR.
-
-For a source build:
-
-```bash
-./target/release/vrperf --install
-```
-
-For a downloaded binary:
-
-```bash
-./vrperf --install
-```
-
-The installer replaces the existing executable and updates the SteamVR registration.
-
-Your saved ON/OFF preference is preserved.
-
-## Command-line options
-
-```text
---install                  Install to ~/.local/bin and register SteamVR autostart
---uninstall                Unregister SteamVR and remove installed files
---mode head|left|right     Head-fixed (default) or controller-relative
---upload gl|raw            OpenGL upload (default); raw fallback for diagnostics
---hz auto|NUMBER           Target frame-rate budget (default auto)
---position X,Y,Z           Relative offset, in metres
---width METRES             Physical panel width (default 0.415)
---opacity 0.1..1.0         Panel opacity (default 0.93)
---interval-ms 100..1000    Panel update interval (default 200 ms)
---version                  Show version
--h, --help                 Show help
-```
-
-vrperf accepts an empty command-line argument because SteamVR can pass one when launching external overlays.
-
-## Uninstall
-
-With SteamVR running and vrperf stopped, run:
-
-```bash
-vrperf --uninstall
-```
-
-If `~/.local/bin` is not in your `PATH`, use:
+To remove vrperf, stop it, start SteamVR, and run:
 
 ```bash
 ~/.local/bin/vrperf --uninstall
 ```
 
-This:
+Uninstalling removes the executable and SteamVR registration but leaves saved preferences and calibrations available for later use.
 
-- Disables automatic startup.
-- Unregisters the SteamVR application manifest.
-- Removes the installed executable and manifest.
+## Understanding the display
 
-Your saved overlay visibility setting is preserved under `~/.config/vrperf/`, or the equivalent location specified by `XDG_CONFIG_HOME`.
+vrperf shows frame times measured **on the gaming PC**, not the time needed to encode, transmit or decode the headset video stream. The HEAD panel is larger; the LEFT and RIGHT panels use a smaller watch layout. Both use the same graph colours.
 
-## Known limits
+| Graph element | Colour | Meaning |
+| --- | --- | --- |
+| CPU trace | Blue | CPU frame time within budget |
+| CPU trace above budget | Amber / yellow | CPU frame time exceeds budget |
+| GPU trace | Green | GPU frame time within budget |
+| GPU trace above budget | Orange | GPU frame time exceeds budget |
+| Horizontal dashed line | Muted amber | Frame-time budget for the current refresh rate |
+| Vertical markers | Red | Dropped frames |
 
-- **Resolution:** `RES` displays the manual global SteamVR resolution percentage. It does not include per-application resolution settings or show the combined effective render resolution. When SteamVR uses automatic resolution, the value displays `--`.
-- **Battery levels:** Headset and controller battery percentages depend on information provided by the SteamVR/Steam Link runtime.
-- **CPU timing:** CPU frame time is derived from SteamVR compositor timing fields.
-- **GPU timing:** GPU scene time does not include video encoding, network transmission or headset decoding latency.
-- **Dropped frames:** Markers use SteamVR compositor timing information. They do not independently measure network packet loss.
-- **Graphics compatibility:** The OpenGL/EGL rendering path has been tested on the AMD/RADV configuration listed above. On other drivers, vrperf can fall back to `--upload raw`, although this mode may flicker.
-- **NVIDIA monitoring:** NVML integration is experimental and untested on physical NVIDIA hardware.
-- **Intel monitoring:** Level Zero integration is experimental. GPU utilisation uses combined 3D/render/compute engine activity when available. Dedicated VRAM is reported only for device-local memory.
-- **Multi-GPU systems:** Manual selection between integrated and discrete GPUs is not currently supported.
-- **SteamVR dependency:** SteamVR must be running when using `--install` or `--uninstall`. Starting vrperf before SteamVR is running can start Steam components as a side effect of OpenVR initialisation.
+**Only the parts of a trace over budget change colour.** A trace turns back to blue or green as soon as it returns within budget. The change happens where the line crosses the limit, not across an entire spike or history section.
 
-## Reporting issues
+The frame-time budget is `1000 ÷ headset refresh rate` in milliseconds. At **90 Hz**, the budget is **11.11 ms** per frame. A CPU or GPU value above 11.11 ms exceeds that budget. This is a warning about frame time, not proof that the PC alone caused a dropped frame.
 
-Please use [GitHub Issues](https://github.com/GREYBE4RD/vrperf/issues) to report problems.
+Other values include application FPS, CPU and GPU use, GPU memory (VRAM), system memory (RAM), dropped-frame counts, headset and controller battery levels, SteamVR resolution settings, and the local time. Some values are unavailable on some hardware and appear as `--`.
 
-Include:
+`RES` combines the SteamVR global and per-application resolution multipliers where available. It does **not** show a game's internal render resolution or upscaling setting.
 
-- Linux distribution and version.
-- SteamVR version.
-- Headset model and connection method.
-- GPU model and driver.
-- Whether the game is running through Proton.
-- Relevant terminal output or error messages.
-- Whether `--upload raw` changes the behaviour.
+## Compatibility
 
-Please indicate whether the problem affects frame timings, hardware statistics, dashboard controls, rendering or automatic startup.
+| Hardware | Status |
+| --- | --- |
+| Arch Linux, SteamVR, Steam Frame, Radeon RX 9070 XT | Tested setup |
+| Other SteamVR headsets and AMD GPUs | Best effort, not yet tested |
+| NVIDIA proprietary drivers | Experimental GPU monitoring, not yet tested |
+| Intel GPUs | Experimental GPU monitoring, not yet tested |
 
-Reports from NVIDIA, Intel and other AMD GPU users are particularly useful, as these configurations have not yet been tested.
+**Controller calibration:** Steam Frame grip input has been tested. vrperf also includes best-effort SteamVR bindings for Valve Index, Meta/Oculus Touch, HTC Vive, Vive Cosmos, Windows Mixed Reality, and HP Reverb G2 controllers. These other controllers have not been tested with vrperf. Index grip uses its pressure-sensitive grab input. SteamVR may remap other controller types automatically, but this is not guaranteed.
 
-## Source layout
+Controller tracking uses SteamVR's normal left and right tracked-controller roles. Grip and trigger use the SteamVR action input system (`IVRInput`). A tracked controller does not necessarily have working calibration buttons until its bindings are assigned.
+
+## Troubleshooting
+
+**The watch does not move during calibration:** Select CAL LEFT or CAL RIGHT, then **close the SteamVR dashboard**. Release and press the **opposite** grip again, then move that controller. Calibration can continue in a running game. If grip and trigger still do nothing, open **SteamVR Settings > Controllers > Manage Controller Bindings**, select vrperf, and check the bindings. Launch vrperf from a terminal to see input diagnostics.
+
+**A saved watch does not appear:** Turn the calibrated face towards your eyes and look at it. A saved watch uses separate show/hide angle thresholds to avoid flicker. It hides if tracking is lost. An uncalibrated watch remains visible while tracked.
+
+**Reset one watch's position:** Stop vrperf, rename `~/.config/vrperf/watch_left` or `~/.config/vrperf/watch_right`, then restart vrperf. The selected watch returns to its first-use position. This does not change the other watch. If you use `XDG_CONFIG_HOME`, find these files in its `vrperf` folder instead.
+
+**An update still shows the old behaviour:** Check that you installed the **new** executable, then fully restarted SteamVR. Avoid running both a manual copy and the installed copy at the same time.
+
+**Some measurements show `--`:** SteamVR or the GPU driver may not supply that reading. If the graphics upload fails, `--upload raw` is a diagnostic option, but its display may flicker.
+
+Report problems on [GitHub Issues](https://github.com/GREYBE4RD/vrperf/issues). Include the Linux distribution, SteamVR version, headset and controller model, GPU driver and relevant terminal messages.
+
+## Advanced options
 
 ```text
-src/main.rs                 SteamVR connection and event loop
-src/timing.rs               App FPS, CPU/GPU timing history and dropped frames
-src/render.rs               Compact panel renderer and graphs
-src/gpu_texture.rs          EGL/OpenGL upload, with raw fallback
-src/hardware.rs             Linux CPU/RAM and GPU backend selection
-src/hardware/nvml.rs        Optional NVIDIA NVML monitoring
-src/hardware/level_zero.rs  Optional Intel Level Zero Sysman monitoring
-src/hardware/dynlib.rs      Optional shared-library loader
-src/registration.rs         Install/uninstall and SteamVR application manifest
-src/dashboard.rs            In-headset dashboard toggle
-src/devices.rs              HMD/controller metrics and local time
-src/scene.rs                Game detection
-src/config.rs               Command-line settings
-src/overlay.rs              Panel visibility and tracking transforms
+--mode head|left|right      Select Head or Left/Right watch
+--upload gl|raw            OpenGL upload (default) or raw diagnostic mode
+--hz auto|NUMBER           Override detected refresh rate
+--width METRES             Head overlay width (default 0.415)
+--position X,Y,Z           Head-relative position in metres
+--interval-ms 100..1000    Statistics update interval (default 200 ms)
+--capture-frame PATH       Save one RGBA PNG before SteamVR upload
+--install                  Install and register SteamVR autostart
+--uninstall                Unregister and uninstall
+--version                  Print version
+--help                     Show help
 ```
 
-## Acknowledgements
+`--position` and `--width` affect **HEAD** only. Watch position, orientation and size are set through the dashboard. SteamVR may pass an empty startup argument; vrperf ignores it. Old `--opacity`, `--wrist-style` and `--wrist-placement` options were removed in v1.20.
 
-vrperf was developed with the assistance of OpenAI's ChatGPT, which was used to help write, refine and troubleshoot the code.
+### Display and monitoring details
 
-Development, testing and validation were carried out on Arch Linux with SteamVR and Steam Frame.
+- The graph puts frame times up to the budget in its lower 65% and times from the budget to twice the budget in the upper 35%. Larger spikes clip at the top; the numeric reading still shows the actual time.
+- Each graph covers individual frames, not an averaged line. Red dropped-frame markers appear above both traces.
+- Watch visibility uses calibrated face-angle thresholds of 40° to show and 60° to hide, together with gaze-angle thresholds of 55° to show and 70° to hide. This prevents rapid toggling near the edge. There is no fade or wait timer.
+- The panel uses straight RGBA with fixed OpenVR opacity of 0.93. The OpenGL texture path is the default; the raw path may flicker.
+- SteamVR/OpenVR supplies frame times and device details. AMD hardware use comes from Linux `amdgpu` sysfs; NVIDIA use comes from NVML (`libnvidia-ml.so.1`); Intel use comes from Level Zero Sysman (`libze_loader.so.1`). The vendor libraries are optional. Intel device selection may be inaccurate with multiple Intel GPUs.
+- The displayed dropped-frame count is from SteamVR compositor timing. It does not independently measure wireless packet loss. CPU/GPU frame times do not include encoding, network or headset decoding delays.
 
-## Licence and API references
+### Files and source layout
 
-vrperf is licensed under GNU GPL version 3 only (`GPL-3.0-only`). See [LICENSE](LICENSE).
+Settings live under `~/.config/vrperf/` by default. `visible` stores the ON/OFF state, `mode` the selected display mode, and `watch_left` and `watch_right` the independent saved watch placements. The installer does not delete these files during upgrades.
 
-- [OpenVR SDK](https://github.com/ValveSoftware/openvr)
-- [Linux AMDGPU metrics](https://www.kernel.org/doc/html/latest/gpu/amdgpu/driver-misc.html)
-- [NVIDIA NVML API](https://docs.nvidia.com/deploy/nvml-api/latest/index.html)
-- [Intel Level Zero Sysman API](https://oneapi-src.github.io/level-zero-spec/)
+```text
+src/main.rs           SteamVR event loop and configuration
+src/overlay.rs        Head/watch tracking, visibility and calibration movement
+src/calibration.rs    Watch transforms, validation and persistence format
+src/input.rs          SteamVR grip/trigger action polling
+src/dashboard.rs      Dashboard and calibration controls
+src/registration.rs   Install/uninstall and SteamVR action bindings
+src/render.rs         Panel rendering and graphs
+src/gpu_texture.rs    EGL/OpenGL texture upload
+src/timing.rs         Frame times, FPS and dropped frames
+src/hardware.rs       Host CPU, RAM and GPU monitoring
+src/hardware/         Optional NVIDIA/Intel monitoring backends
+src/devices.rs        Controller batteries and resolution settings
+src/scene.rs          Game detection
+src/config.rs         Command-line configuration
+src/capture.rs        Diagnostic PNG capture
+assets/steamvr/       SteamVR action manifest and controller bindings
+```
+
+vrperf is licensed under **GPL-3.0-only**. See [LICENSE](LICENSE). It was developed with assistance from OpenAI's ChatGPT; development and testing have used Arch Linux, SteamVR and Steam Frame.
+
+API references: [OpenVR](https://github.com/ValveSoftware/openvr), [SteamVR action manifests](https://github.com/ValveSoftware/openvr/wiki/Action-manifest), [AMD GPU metrics](https://www.kernel.org/doc/html/latest/gpu/amdgpu/driver-misc.html), [NVIDIA NVML](https://docs.nvidia.com/deploy/nvml-api/latest/index.html), [Intel Level Zero Sysman](https://oneapi-src.github.io/level-zero-spec/).

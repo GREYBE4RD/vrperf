@@ -26,6 +26,7 @@ const GL_RGBA: u32 = 0x1908;
 const GL_UNSIGNED_BYTE: u32 = 0x1401;
 const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
 const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
+// Restore v1.11 texture filtering together with its straight RGBA pixels.
 const GL_LINEAR: i32 = 0x2601;
 const GL_UNPACK_ALIGNMENT: u32 = 0x0CF5;
 const GL_NO_ERROR: u32 = 0;
@@ -94,13 +95,22 @@ unsafe fn try_egl_devices(major: &mut i32, minor: &mut i32) -> *mut c_void {
     }
 }
 
+// Normalised bounds for a region uploaded at the bottom-left of the fixed
+// backing texture. V is inverted by SetOverlayTextureBounds at display time.
+fn visible_texture_region(width: i32, height: i32, max_width: i32, max_height: i32)
+    -> (f32, f32) {
+    (width as f32 / max_width as f32, height as f32 / max_height as f32)
+}
+
 pub struct GlUploader {
     display: *mut c_void,
     surface: *mut c_void,
     context: *mut c_void,
     texture: u32,
-    width: i32,
-    height: i32,
+    width: i32,  // Fixed backing texture width (maximum renderer width).
+    height: i32, // Fixed backing texture height (maximum renderer height).
+    frame_width: i32,
+    frame_height: i32,
     overlay_api: *const openvr_sys::VR_IVROverlay_FnTable,
 }
 
@@ -171,22 +181,41 @@ impl GlUploader {
                 return Err(format!("OpenVR texture API unavailable ({init_error})"));
             }
             Ok(Self { display, surface, context, texture, width: width as i32,
-                height: height as i32, overlay_api: api })
+                height: height as i32, frame_width: width as i32,
+                frame_height: height as i32, overlay_api: api })
         }
     }
 
-    /// Flip only the OpenGL texture's vertical sampling direction. The UI pixel
-    /// buffer uses a top-left origin, but OpenGL texture rows use a bottom-left
-    /// origin. Reverse this setting before switching to SetOverlayRaw.
-    pub fn set_vertical_flip(&self, handle: OverlayHandle, flipped: bool) -> Result<(), String> {
+    /// The OpenGL allocation is fixed for the life of the process. Only the
+    /// visible subregion changes when switching between the head/wrist panels.
+    /// This avoids destroying a texture still referenced by SteamVR.
+    pub fn set_dimensions(&mut self, handle: OverlayHandle,
+        width: usize, height: usize) -> Result<(), String> {
+        if width == 0 || height == 0 || width > self.width as usize || height > self.height as usize {
+            return Err("Overlay dimensions exceed the allocated OpenGL texture".into());
+        }
+        // UI rows have a top-left origin. OpenGL rows begin at the bottom;
+        // display the allocated bottom-left region with inverted V coordinates.
+        let (u_max, v_min) = visible_texture_region(
+            width as i32, height as i32, self.width, self.height);
+        self.set_bounds(handle, u_max, v_min, 0.0)?;
+        self.frame_width = width as i32;
+        self.frame_height = height as i32;
+        Ok(())
+    }
+
+    /// Restore normal, non-inverted UV bounds before using SetOverlayRaw.
+    pub fn reset_texture_bounds(&self, handle: OverlayHandle) -> Result<(), String> {
+        self.set_bounds(handle, 1.0, 0.0, 1.0)
+    }
+
+    fn set_bounds(&self, handle: OverlayHandle,
+        u_max: f32, v_min: f32, v_max: f32) -> Result<(), String> {
         let mut bounds = openvr_sys::VRTextureBounds_t {
-            uMin: 0.0,
-            vMin: if flipped { 1.0 } else { 0.0 },
-            uMax: 1.0,
-            vMax: if flipped { 0.0 } else { 1.0 },
+            uMin: 0.0, vMin: v_min, uMax: u_max, vMax: v_max,
         };
-        // SAFETY: The OpenVR interface was checked during construction and
-        // remains valid while the OpenVR context is alive on this thread.
+        // SAFETY: The OpenVR interface was validated during construction and
+        // lives at least as long as this uploader.
         let result = unsafe {
             let set_bounds = (*self.overlay_api).SetOverlayTextureBounds.expect("validated API");
             set_bounds(handle.0, &mut bounds)
@@ -198,14 +227,14 @@ impl GlUploader {
     }
 
     pub fn upload(&mut self, handle: OverlayHandle, pixels: &[u8]) -> Result<(), String> {
-        if pixels.len() != self.width as usize * self.height as usize * 4 {
+        if pixels.len() != self.frame_width as usize * self.frame_height as usize * 4 {
             return Err("Unexpected frame buffer size".into());
         }
         // SAFETY: The context remains current on this single thread, texture is
         // alive, `pixels` has the required size, and the OpenVR table outlives us.
         unsafe {
             glBindTexture(GL_TEXTURE_2D, self.texture);
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, self.width, self.height,
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, self.frame_width, self.frame_height,
                 GL_RGBA, GL_UNSIGNED_BYTE, pixels.as_ptr().cast());
             if glGetError() != GL_NO_ERROR { return Err("OpenGL texture upload failed".into()); }
             glFlush();
@@ -232,5 +261,25 @@ impl Drop for GlUploader {
             let _ = eglDestroyContext(self.display, self.context);
             let _ = eglTerminate(self.display);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fixed_texture_supports_head_wrist_and_return_to_head() {
+        let max_w = crate::render::WIDTH as i32;
+        let max_h = crate::render::WRIST_HEIGHT as i32;
+        let head = visible_texture_region(
+            max_w, crate::render::HEIGHT as i32, max_w, max_h);
+        let wrist = visible_texture_region(
+            crate::render::WRIST_WIDTH as i32, max_h, max_w, max_h);
+        assert!((head.0 - 1.0).abs() < f32::EPSILON);
+        assert!((head.1 - (160.0 / 164.0)).abs() < f32::EPSILON);
+        assert!((wrist.0 - (576.0 / 864.0)).abs() < f32::EPSILON);
+        assert!((wrist.1 - 1.0).abs() < f32::EPSILON);
+        assert_eq!(head, visible_texture_region(max_w, 160, max_w, max_h));
     }
 }

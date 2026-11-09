@@ -1,0 +1,70 @@
+{
+  "action_sets": [
+    {
+      "name": "/actions/calibration",
+      "usage": "leftright"
+    }
+  ],
+  "actions": [
+    {
+      "name": "/actions/calibration/in/left_grip",
+      "type": "boolean",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/calibration/in/left_trigger",
+      "type": "boolean",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/calibration/in/right_grip",
+      "type": "boolean",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/calibration/in/right_trigger",
+      "type": "boolean",
+      "requirement": "optional"
+    }
+  ],
+  "default_bindings": [
+    {
+      "controller_type": "frame_controller",
+      "binding_url": "bindings_frame_controller.json"
+    },
+    {
+      "controller_type": "knuckles",
+      "binding_url": "bindings_knuckles.json"
+    },
+    {
+      "controller_type": "oculus_touch",
+      "binding_url": "bindings_oculus_touch.json"
+    },
+    {
+      "controller_type": "vive_controller",
+      "binding_url": "bindings_vive_controller.json"
+    },
+    {
+      "controller_type": "vive_cosmos_controller",
+      "binding_url": "bindings_vive_cosmos_controller.json"
+    },
+    {
+      "controller_type": "holographic_controller",
+      "binding_url": "bindings_holographic_controller.json"
+    },
+    {
+      "controller_type": "hpmotioncontroller",
+      "binding_url": "bindings_hpmotioncontroller.json"
+    }
+  ],
+  "localization": [
+    {
+      "language_tag": "en_US",
+      "/actions/calibration": "Watch Calibration",
+      "/actions/calibration/in/left_grip": "Left Grip",
+      "/actions/calibration/in/left_trigger": "Left Trigger",
+      "/actions/calibration/in/right_grip": "Right Grip",
+      "/actions/calibration/in/right_trigger": "Right Trigger"
+    }
+  ]
+}

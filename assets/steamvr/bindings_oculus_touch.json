@@ -1,0 +1,69 @@
+{
+  "action_manifest_version": 0,
+  "category": "steamvr_input",
+  "controller_type": "oculus_touch",
+  "name": "vrperf watch calibration",
+  "description": "Opposite grip or trigger moves the watch",
+  "bindings": {
+    "/actions/calibration": {
+      "sources": [
+        {
+          "path": "/user/hand/left/input/grip",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/calibration/in/left_grip"
+            }
+          },
+          "parameters": {
+            "click_activate_threshold": "0.8",
+            "click_deactivate_threshold": "0.7"
+          }
+        },
+        {
+          "path": "/user/hand/left/input/trigger",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/calibration/in/left_trigger"
+            }
+          },
+          "parameters": {
+            "click_activate_threshold": "0.8",
+            "click_deactivate_threshold": "0.7"
+          }
+        },
+        {
+          "path": "/user/hand/right/input/grip",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/calibration/in/right_grip"
+            }
+          },
+          "parameters": {
+            "click_activate_threshold": "0.8",
+            "click_deactivate_threshold": "0.7"
+          }
+        },
+        {
+          "path": "/user/hand/right/input/trigger",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/calibration/in/right_trigger"
+            }
+          },
+          "parameters": {
+            "click_activate_threshold": "0.8",
+            "click_deactivate_threshold": "0.7"
+          }
+        }
+      ],
+      "poses": [],
+      "haptics": [],
+      "skeleton": [],
+      "chords": []
+    }
+  }
+}

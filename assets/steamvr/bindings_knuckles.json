@@ -1,0 +1,61 @@
+{
+  "action_manifest_version": 0,
+  "category": "steamvr_input",
+  "controller_type": "knuckles",
+  "name": "vrperf watch calibration",
+  "description": "Opposite grip or trigger moves the watch",
+  "bindings": {
+    "/actions/calibration": {
+      "sources": [
+        {
+          "path": "/user/hand/left/input/grip",
+          "mode": "grab",
+          "inputs": {
+            "grab": {
+              "output": "/actions/calibration/in/left_grip"
+            }
+          },
+          "parameters": {
+            "force_hold_threshold": "0.02",
+            "force_release_threshold": "0.01"
+          }
+        },
+        {
+          "path": "/user/hand/left/input/trigger",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/calibration/in/left_trigger"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/grip",
+          "mode": "grab",
+          "inputs": {
+            "grab": {
+              "output": "/actions/calibration/in/right_grip"
+            }
+          },
+          "parameters": {
+            "force_hold_threshold": "0.02",
+            "force_release_threshold": "0.01"
+          }
+        },
+        {
+          "path": "/user/hand/right/input/trigger",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/calibration/in/right_trigger"
+            }
+          }
+        }
+      ],
+      "poses": [],
+      "haptics": [],
+      "skeleton": [],
+      "chords": []
+    }
+  }
+}
