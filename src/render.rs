@@ -8,8 +8,15 @@ use crate::timing::{FrameMonitor, FrameSample};
 // Wide and shallow, with hardware values above and battery/time below graphs.
 pub const WIDTH: usize = 864;
 pub const HEIGHT: usize = 160;
-pub const WRIST_WIDTH: usize = 576;
-pub const WRIST_HEIGHT: usize = 164;
+// Keep the watch compact. Matching the head texture height also avoids
+// vertically cropped OpenGL texture bounds on mode switches.
+pub const WRIST_WIDTH: usize = 560;
+pub const WRIST_HEIGHT: usize = 160;
+const WRIST_TOP_Y: i32 = 16;
+const WRIST_GRAPH_Y: i32 = 44;
+const WRIST_GRAPH_H: i32 = 72;
+const WRIST_BOTTOM_Y: i32 = 130;
+
 // Reserve a fixed left column for readable, stable 2x frame-time values.
 const GRAPH_X: i32 = 194;
 const GRAPH_W: i32 = WIDTH as i32 - GRAPH_X - 12;
@@ -31,6 +38,8 @@ const GPU: [u8; 4] = [100, 225, 163, 255];
 // Separate warning colours preserve CPU/GPU identity above the frame budget.
 const CPU_OVER_BUDGET: [u8; 4] = [255, 204, 79, 255]; // amber
 const GPU_OVER_BUDGET: [u8; 4] = [255, 131, 65, 255]; // orange
+const RESOURCE_WARNING: [u8; 4] = [255, 159, 72, 255];
+const RESOURCE_CRITICAL: [u8; 4] = [255, 74, 65, 255];
 const DROPPED: [u8; 4] = [255, 74, 65, 255];
 const BUDGET: [u8; 4] = [207, 162, 84, 255];
 
@@ -68,10 +77,12 @@ impl Renderer {
             (fps, TEXT),
             (format!("{hz:.0}HZ"), MUTED),
             (format!("RES {}", percent(devices.display_resolution(monitor.is_active()))), MUTED),
-            (format!("CPU {}", load_percent(hw.cpu_load)), TEXT),
-            (format!("GPU {}", load_percent(hw.gpu_load)), TEXT),
-            (format!("VRAM {}", used_total_short(hw.vram_used_gib, hw.vram_total_gib)), TEXT),
-            (format!("RAM {}", used_total_short(hw.ram_used_gib, hw.ram_total_gib)), TEXT),
+            (format!("CPU {}", load_percent(hw.cpu_load)), usage_colour(hw.cpu_load)),
+            (format!("GPU {}", load_percent(hw.gpu_load)), usage_colour(hw.gpu_load)),
+            (format!("VRAM {}", used_total_short(hw.vram_used_gib, hw.vram_total_gib)),
+                memory_colour(hw.vram_used_gib, hw.vram_total_gib)),
+            (format!("RAM {}", used_total_short(hw.ram_used_gib, hw.ram_total_gib)),
+                memory_colour(hw.ram_used_gib, hw.ram_total_gib)),
         ];
         // Reserve each field's width for its longest normal value. Using
         // current text widths made *all* subsequent fields shift whenever a
@@ -91,23 +102,28 @@ impl Renderer {
         // fixed labels and bottom information bar. The shared CPU/GPU graph
         // fills the right-hand area between the two information separators.
         self.label(12, 48, "CPU", 2, CPU);
-        self.label(70, 48, &frame_time_text(latest.map(|f| f.cpu_ms)), 2, TEXT);
+        self.label(70, 48, &frame_time_text(latest.map(|f| f.cpu_ms)), 2,
+            frame_time_colour(latest.map(|f| f.cpu_ms), budget, CPU, CPU_OVER_BUDGET));
         self.rect(10, 79, GRAPH_X - 22, 1, [45, 59, 75, 255]);
         self.label(12, 94, "GPU", 2, GPU);
-        self.label(70, 94, &frame_time_text(latest.map(|f| f.gpu_ms)), 2, TEXT);
+        self.label(70, 94, &frame_time_text(latest.map(|f| f.gpu_ms)), 2,
+            frame_time_colour(latest.map(|f| f.gpu_ms), budget, GPU, GPU_OVER_BUDGET));
         self.graph(&monitor.samples, monitor.is_recent(), GRAPH_X, HEAD_GRAPH_Y, GRAPH_W, HEAD_GRAPH_H, budget);
         self.rect(10, 129, WIDTH as i32 - 20, 1, [59, 76, 94, 255]);
 
         // Identical bottom information positions to v1.11.
-        self.label(10, 138, &format!("HMD {}", percent(devices.hmd)), 2, TEXT);
-        self.label(164, 138, &format!("L {}", percent(devices.left)), 2, TEXT);
-        self.label(282, 138, &format!("R {}", percent(devices.right)), 2, TEXT);
+        self.label(10, 138, &format!("HMD {}", percent(devices.hmd)), 2,
+            battery_colour(devices.hmd));
+        self.label(164, 138, &format!("L {}", percent(devices.left)), 2,
+            battery_colour(devices.left));
+        self.label(282, 138, &format!("R {}", percent(devices.right)), 2,
+            battery_colour(devices.right));
         let drops = if monitor.is_active() { monitor.dropped.to_string() }
             else { "--".to_string() };
         self.label(412, 138, &format!("DROP {drops}"), 2, MUTED);
         let clock = devices::local_clock();
         let clock_x = WIDTH as i32 - 12 - clock.chars().count() as i32 * 16;
-        let budget_text = format!("BUDGET {budget:.2}MS");
+        let budget_text = format!("BUDGET {budget:.2}ms");
         self.label_compact(clock_x - compact_width(&budget_text) - 18, 138,
             &budget_text, MUTED);
         self.label(clock_x, 138, &clock, 2, TEXT);
@@ -116,41 +132,49 @@ impl Renderer {
     fn draw_wrist(&mut self, monitor: &FrameMonitor, hw: &HardwareStats,
         devices: &DeviceStats, hz: f32, budget: f32) {
         let latest = monitor.latest();
+        // One information row above the graph and one below. Both rows use
+        // reserved widths, so changing values cannot move neighbouring fields.
+        // The clock fits better at the end of the top row. Reserve the
+        // longest values for both rows so changing numbers never shift text.
         let fps = monitor.current_fps(hz).map_or_else(|| "FPS --".into(), |value| {
-            if value >= 100.0 { format!("FPS {value:.0}") }
-            else { format!("FPS {value:.1}") }
+            if value.is_finite() && value >= 0.0 {
+                if value >= 999.5 { "FPS 999+".into() }
+                else { format!("FPS {value:.0}") }
+            } else { "FPS --".into() }
         });
-        self.label_compact(10, 8, &fps, TEXT);
-        self.label_compact(167, 8, &format!("CPU {}", frame_time_text(latest.map(|f| f.cpu_ms))), CPU);
-        self.label_compact(369, 8, &format!("GPU {}", frame_time_text(latest.map(|f| f.gpu_ms))), GPU);
-        self.rect(10, 31, WRIST_WIDTH as i32 - 20, 1, [59, 76, 94, 255]);
-        self.graph(&monitor.samples, monitor.is_recent(), 10, 36,
-            WRIST_WIDTH as i32 - 20, 55, budget);
-        self.rect(10, 100, WRIST_WIDTH as i32 - 20, 1, [59, 76, 94, 255]);
-        // Reserve four slots from the widest expected labels rather than using
-        // fixed X values. This prevents DROP from running into RES when the
-        // counter grows from two to five digits.
-        let info_positions = wrist_info_positions();
-        let info = [
+        let top = [
+            (fps, TEXT),
+            (format!("CPU {}", wrist_frame_time_text(latest.map(|f| f.cpu_ms))),
+                frame_time_colour(latest.map(|f| f.cpu_ms), budget, CPU, CPU_OVER_BUDGET)),
+            (format!("GPU {}", wrist_frame_time_text(latest.map(|f| f.gpu_ms))),
+                frame_time_colour(latest.map(|f| f.gpu_ms), budget, GPU, GPU_OVER_BUDGET)),
             (format_wrist_drops(monitor.is_active().then_some(monitor.dropped)), DROPPED),
-            (format!("RES {}", percent(devices.display_resolution(monitor.is_active()))), TEXT),
-            (format!("HMD {}", percent(devices.hmd)), MUTED),
+            (format_wrist_resolution(devices.display_resolution(monitor.is_active())), MUTED),
             (devices::local_clock(), TEXT),
         ];
-        for ((label, color), x) in info.iter().zip(info_positions) {
-            self.label_compact(x, 107, label, *color);
+        let top_slots = wrist_top_widths();
+        for (i, ((text, colour), x)) in top.iter().zip(wrist_top_positions()).enumerate() {
+            self.label_wrist(wrist_aligned_x(x, top_slots[i], text, i, top.len()),
+                WRIST_TOP_Y, text, *colour);
         }
-        self.rect(10, 129, WRIST_WIDTH as i32 - 20, 1, [45, 59, 75, 255]);
-        // Three fields share the bottom row; HMD lives beside RES and time.
-        // Each row reserves space for worst-case normal values.
-        let positions = wrist_footer_positions();
-        let footer = [
-            (format!("GPU {}", load_percent(hw.gpu_load)), TEXT),
-            (format!("VRAM {}", used_total_short(hw.vram_used_gib, hw.vram_total_gib)), TEXT),
-            (format!("RAM {}", used_total_short(hw.ram_used_gib, hw.ram_total_gib)), TEXT),
+        // Top padding keeps every glyph fully inside the visible panel.
+        self.rect(10, 40, WRIST_WIDTH as i32 - 20, 1, [59, 76, 94, 255]);
+        self.graph(&monitor.samples, monitor.is_recent(), 10, WRIST_GRAPH_Y,
+            WRIST_WIDTH as i32 - 20, WRIST_GRAPH_H, budget);
+        self.rect(10, 120, WRIST_WIDTH as i32 - 20, 1, [59, 76, 94, 255]);
+        let bottom = [
+            (format!("BAT {}", percent(devices.hmd)), battery_colour(devices.hmd)),
+            (format!("CPU {}", load_percent(hw.cpu_load)), usage_colour(hw.cpu_load)),
+            (format!("RAM {}", used_total_wrist(hw.ram_used_gib, hw.ram_total_gib)),
+                memory_colour(hw.ram_used_gib, hw.ram_total_gib)),
+            (format!("GPU {}", load_percent(hw.gpu_load)), usage_colour(hw.gpu_load)),
+            (format!("VRA {}", used_total_wrist(hw.vram_used_gib, hw.vram_total_gib)),
+                memory_colour(hw.vram_used_gib, hw.vram_total_gib)),
         ];
-        for ((label, color), x) in footer.iter().zip(positions) {
-            self.label_compact(x, 137, label, *color);
+        let bottom_slots = wrist_bottom_widths();
+        for (i, ((text, colour), x)) in bottom.iter().zip(wrist_bottom_positions()).enumerate() {
+            self.label_wrist(wrist_aligned_x(x, bottom_slots[i], text, i, bottom.len()),
+                WRIST_BOTTOM_Y, text, *colour);
         }
     }
 
@@ -209,6 +233,31 @@ impl Renderer {
                 }
             }
             cursor += compact_advance(ch);
+        }
+    }
+
+    // Wrist-only font: preserve the 16px height, with 1.4 pixels per bitmap
+    // column horizontally. This keeps both reserved rows within 560 pixels
+    // without changing the HEAD font.
+    fn label_wrist(&mut self, x: i32, y: i32, text: &str, color: [u8; 4]) {
+        let mut cursor = x;
+        for ch in text.chars() {
+            if let Some(bitmap) = BASIC_FONTS.get(ch) {
+                if let Some((first, last)) = glyph_columns(&bitmap) {
+                    for (row, bits) in bitmap.iter().enumerate() {
+                        for col in first..=last {
+                            if *bits & (1_u8 << col) != 0 {
+                                let local = col - first;
+                                let start_x = local * 7 / 5;
+                                let end_x = (local + 1) * 7 / 5;
+                                self.rect(cursor + start_x, y + row as i32 * 2,
+                                    end_x - start_x, 2, color);
+                            }
+                        }
+                    }
+                }
+            }
+            cursor += wrist_advance(ch);
         }
     }
 
@@ -301,6 +350,14 @@ fn compact_width(text: &str) -> i32 {
     (text.chars().map(compact_advance).sum::<i32>() - 2).max(0)
 }
 
+// Watch glyphs use 70% of the HEAD font's horizontal advance. Reserving
+// the same advances used for drawing keeps each field inside its fixed slot.
+fn wrist_advance(ch: char) -> i32 { (compact_advance(ch) * 7 + 9) / 10 }
+fn wrist_text_width(text: &str) -> i32 {
+    // Reserve the full advance, including the last glyph's ink.
+    text.chars().map(wrist_advance).sum()
+}
+
 // Constant widths: changing values must never reflow the top row.
 fn top_slot_widths() -> [i32; 7] {
     let mut widths = ["FPS 99.9", "144HZ", "RES 1000%", "CPU 100%", "GPU 100%",
@@ -336,72 +393,111 @@ fn top_row_positions() -> [i32; 7] {
     positions
 }
 
-// Reserve the worst-case normal readouts for the four fields above the
-// footer. The clock is right-aligned by the distributed leftover space.
-fn wrist_info_widths() -> [i32; 4] {
-    ["DROP 99999", "RES 1000%", "HMD 100%", "23:59"].map(compact_width)
+// Reserve space for the longest expected values in the two watch rows.
+// The positions are based on slot widths, not current measurements. Even a
+// DROP 9 -> DROP 10 change leaves every other label in the same place.
+fn wrist_top_widths() -> [i32; 6] {
+    ["FPS 999+", "CPU 999+ms", "GPU 999+ms", "DROP 999M", "RES 9999%", "23:59"]
+        .map(wrist_text_width)
 }
 
-fn wrist_info_positions() -> [i32; 4] {
-    let widths = wrist_info_widths();
-    const GAP: i32 = 8;
-    let extra = WRIST_WIDTH as i32 - 20 - widths.iter().sum::<i32>() - 3 * GAP;
-    debug_assert!(extra >= 0, "wrist information row fields do not fit");
-    let distributed = extra.max(0) / 3;
-    let remainder = extra.max(0) % 3;
-    let mut positions = [0; 4];
+fn wrist_bottom_widths() -> [i32; 5] {
+    ["BAT 100%", "CPU 100%", "RAM 999T/999T", "GPU 100%", "VRA 999T/999T"]
+        .map(wrist_text_width)
+}
+
+// Compact row spacing. The reserved slots still prevent labels from shifting.
+const WRIST_ROW_GAP: i32 = 2;
+
+fn wrist_row_required<const N: usize>(widths: [i32; N]) -> i32 {
+    widths.iter().sum::<i32>() + 20 + WRIST_ROW_GAP * (N as i32 - 1)
+}
+
+fn wrist_row_positions<const N: usize>(widths: [i32; N]) -> [i32; N] {
+    let available = WRIST_WIDTH as i32 - wrist_row_required(widths);
+    debug_assert!(available >= 0, "watch row exceeds the graph width");
+    let extra = available.max(0);
+    let gaps = N as i32 - 1;
+    let mut positions = [0; N];
     let mut x = 10;
-    for (i, width) in widths.iter().enumerate() {
+    for i in 0..N {
         positions[i] = x;
-        if i < 3 {
-            x += *width + GAP + distributed + i32::from((i as i32) < remainder);
+        if i + 1 < N {
+            x += widths[i] + WRIST_ROW_GAP + extra / gaps
+                + i32::from((i as i32) < extra % gaps);
         }
     }
     positions
 }
 
-// Retain the exact dropped-frame count up to 99,999. Abbreviate larger
-// values to avoid overwriting the adjacent resolution field.
+fn wrist_top_positions() -> [i32; 6] {
+    wrist_row_positions(wrist_top_widths())
+}
+fn wrist_bottom_positions() -> [i32; 5] {
+    wrist_row_positions(wrist_bottom_widths())
+}
+
+// Centre shorter readings within their reserved slots. Anchor the first and
+// last fields to the graph edges, and never move neighbouring fields when a
+// number gains digits (notably DROP 9 -> DROP 10).
+fn wrist_aligned_x(start: i32, slot_width: i32, text: &str,
+    index: usize, field_count: usize) -> i32 {
+    let spare = (slot_width - wrist_text_width(text)).max(0);
+    let offset = if index == 0 { 0 }
+        else if index + 1 == field_count { spare }
+        else { spare / 2 };
+    start + offset
+}
+
+// Exact below 1000; above that use compact K/M/B/T/P suffixes.
+// A reserved four-character value prevents changes such as DROP 9 -> 10
+// from moving the following fields, even for very large counters.
 fn format_wrist_drops(drops: Option<u64>) -> String {
     match drops {
         None => "DROP --".into(),
-        Some(n) if n <= 99_999 => format!("DROP {n}"),
+        Some(n) if n < 1_000 => format!("DROP {n}"),
         Some(n) if n < 1_000_000 => format!("DROP {}K", n / 1_000),
-        Some(n) => format!("DROP {}M", (n / 1_000_000).min(999)),
+        Some(n) if n < 1_000_000_000 => format!("DROP {}M", n / 1_000_000),
+        Some(n) if n < 1_000_000_000_000 => format!("DROP {}B", n / 1_000_000_000),
+        Some(n) if n < 1_000_000_000_000_000 => format!("DROP {}T", n / 1_000_000_000_000),
+        Some(n) if n < 1_000_000_000_000_000_000 =>
+            format!("DROP {}P", n / 1_000_000_000_000_000),
+        Some(_) => "DROP 1E+".into(),
     }
 }
 
-// Stable reserved widths for the three wrist footer fields. This keeps
-// the RAM/VRAM values away from the HMD battery on the row above.
-fn wrist_footer_widths() -> [i32; 3] {
-    ["GPU 100%", "VRAM 128/128G", "RAM 128/128G"].map(compact_width)
+// Watch timings below 100 ms keep one decimal. At 100 ms and above,
+// whole milliseconds save space without losing useful detail in VR.
+// The longest value is 999+ms; HEAD keeps its own formatter.
+fn wrist_frame_time_text(value: Option<f32>) -> String {
+    match value {
+        Some(ms) if ms.is_finite() && (0.0..99.95).contains(&ms) =>
+            format!("{ms:04.1}ms"),
+        Some(ms) if ms.is_finite() && (99.95..999.5).contains(&ms) =>
+            format!("{ms:.0}ms"),
+        Some(ms) if ms.is_finite() && ms >= 999.5 => "999+ms".into(),
+        _ => "--.-ms".into(),
+    }
 }
 
-fn wrist_footer_positions() -> [i32; 3] {
-    let widths = wrist_footer_widths();
-    let extra = WRIST_WIDTH as i32 - 20 - widths.iter().sum::<i32>() - 2 * 10;
-    debug_assert!(extra >= 0, "wrist footer fields do not fit");
-    let gap = 10 + extra.max(0) / 2;
-    let mut positions = [0; 3];
-    let mut x = 10;
-    for i in 0..3 {
-        positions[i] = x;
-        if i < 2 {
-            x += widths[i] + gap + i32::from((i as i32) < extra.max(0) % 2);
-        }
+// Display percentages up to 9999 without changing the reserved RES slot.
+fn format_wrist_resolution(value: Option<u16>) -> String {
+    match value {
+        Some(v) if v <= 9999 => format!("RES {v}%"),
+        Some(_) => "RES 9999+".into(),
+        None => "RES --%".into(),
     }
-    positions
 }
 
 // The 8x8 bitmap font uses fixed 16px character cells at scale 2.
-// 09.2MS and 12.3MS therefore occupy identical space. We also reserve
+// 09.2ms and 12.3ms therefore occupy identical space. We also reserve
 // room for rare three-digit timings, without moving the graph start.
 fn frame_time_text(value: Option<f32>) -> String {
     match value {
-        Some(ms) if ms.is_finite() && (0.0..100.0).contains(&ms) => format!("{ms:04.1}MS"),
-        Some(ms) if ms.is_finite() && (100.0..1000.0).contains(&ms) => format!("{ms:.1}MS"),
-        Some(ms) if ms.is_finite() && ms >= 1000.0 => "999+MS".into(),
-        _ => "--.-MS".into(),
+        Some(ms) if ms.is_finite() && (0.0..100.0).contains(&ms) => format!("{ms:04.1}ms"),
+        Some(ms) if ms.is_finite() && (100.0..1000.0).contains(&ms) => format!("{ms:.1}ms"),
+        Some(ms) if ms.is_finite() && ms >= 1000.0 => "999+ms".into(),
+        _ => "--.-ms".into(),
     }
 }
 
@@ -416,6 +512,51 @@ fn used_total_short(used: Option<f32>, total: Option<f32>) -> String {
     match (used, total) {
         (Some(used), Some(total)) => format!("{used:.0}/{total:.0}G"),
         _ => "--/--G".into(),
+    }
+}
+
+// Watch values are GiB unless suffixed T (TiB). No G suffix is needed in
+// the small display. The 999/999 slot also covers the abbreviated TiB form.
+fn wrist_memory_part(value: f32) -> String {
+    if value >= 999.5 { format!("{:.0}T", (value / 1024.0).clamp(1.0, 999.0)) }
+    else { format!("{value:.0}") }
+}
+fn used_total_wrist(used: Option<f32>, total: Option<f32>) -> String {
+    match (used, total) {
+        (Some(used), Some(total)) if used.is_finite() && total.is_finite()
+            && used >= 0.0 && total > 0.0 =>
+            format!("{}/{}", wrist_memory_part(used), wrist_memory_part(total)),
+        _ => "--/--".into(),
+    }
+}
+
+fn frame_time_colour(ms: Option<f32>, budget: f32, normal: [u8; 4], warning: [u8; 4]) -> [u8; 4] {
+    if ms.is_some_and(|value| value.is_finite() && value > budget && budget.is_finite()) {
+        warning
+    } else { normal }
+}
+fn percentage_warning(value: Option<f32>) -> [u8; 4] {
+    match value.filter(|v| v.is_finite() && *v >= 0.0) {
+        Some(v) if v >= 95.0 => RESOURCE_CRITICAL,
+        Some(v) if v >= 85.0 => RESOURCE_WARNING,
+        _ => TEXT,
+    }
+}
+fn usage_colour(value: Option<f32>) -> [u8; 4] {
+    percentage_warning(value)
+}
+fn memory_colour(used: Option<f32>, total: Option<f32>) -> [u8; 4] {
+    match (used, total) {
+        (Some(u), Some(t)) if u.is_finite() && t.is_finite() && u >= 0.0 && t > 0.0 =>
+            percentage_warning(Some(100.0 * u / t)),
+        _ => TEXT,
+    }
+}
+fn battery_colour(value: Option<u8>) -> [u8; 4] {
+    match value {
+        Some(0..=5) => RESOURCE_CRITICAL,
+        Some(6..=15) => RESOURCE_WARNING,
+        _ => TEXT,
     }
 }
 
@@ -464,13 +605,13 @@ mod tests {
     fn frame_time_labels_do_not_jump_between_single_and_double_digits() {
         let single = frame_time_text(Some(9.2));
         let double = frame_time_text(Some(12.3));
-        assert_eq!(single, "09.2MS");
-        assert_eq!(double, "12.3MS");
+        assert_eq!(single, "09.2ms");
+        assert_eq!(double, "12.3ms");
         assert_eq!(single.len(), double.len());
         assert_eq!(single.len() as i32 * 16, 96);
         // Even 100.0MS stays inside the reserved left column.
         assert!(70 + frame_time_text(Some(100.0)).len() as i32 * 16 < GRAPH_X);
-        assert_eq!(frame_time_text(None), "--.-MS");
+        assert_eq!(frame_time_text(None), "--.-ms");
     }
     #[test]
     fn history_covers_entire_graph_without_resampling() {
@@ -562,30 +703,149 @@ mod tests {
         assert_eq!(&r.pixels[offset..offset + 4], &DROPPED[..]);
     }
     #[test]
-    fn wrist_layout_has_clock_and_drop_area() {
+    fn wrist_layout_uses_two_fixed_rows_and_full_width_graph() {
         let mut r = Renderer::for_mode(Mode::Left);
-        let (width, height) = r.dimensions();
-        assert_eq!((width, height), (WRIST_WIDTH, WRIST_HEIGHT));
+        assert_eq!(r.dimensions(), (WRIST_WIDTH, WRIST_HEIGHT));
         r.draw(&FrameMonitor::new(), &HardwareStats::default(), &DeviceStats::default(), 90.0);
         assert_eq!(r.pixels().len(), WRIST_WIDTH * WRIST_HEIGHT * 4);
-        let positions = wrist_footer_positions();
-        let widths = wrist_footer_widths();
-        assert_eq!(positions[0], 10);
-        for i in 0..2 {
-            assert!(positions[i + 1] >= positions[i] + widths[i] + 10);
+        // The top-row clock keeps the widest reserved row narrower.
+        let top = wrist_top_widths();
+        let bottom = wrist_bottom_widths();
+        let clock_top = wrist_row_required(top).max(wrist_row_required(bottom));
+        let clock_bottom = wrist_row_required([top[0], top[1], top[2], top[3], top[4]])
+            .max(wrist_row_required([bottom[0], bottom[1], bottom[2], bottom[3], bottom[4], top[5]]));
+        assert!(clock_top <= clock_bottom);
+        for (widths, positions) in [
+            (wrist_top_widths().to_vec(), wrist_top_positions().to_vec()),
+            (wrist_bottom_widths().to_vec(), wrist_bottom_positions().to_vec()),
+        ] {
+            assert_eq!(positions[0], 10);
+            for i in 0..widths.len() - 1 {
+                assert!(positions[i + 1] >= positions[i] + widths[i] + WRIST_ROW_GAP);
+            }
+            // Both rows end at the same boundary as the graph.
+            assert_eq!(positions[widths.len() - 1] + widths[widths.len() - 1],
+                WRIST_WIDTH as i32 - 10);
         }
-        assert!(positions[2] + widths[2] <= WRIST_WIDTH as i32 - 10);
-        assert!(compact_width("RAM 14/31G") <= widths[2]);
-        let info_positions = wrist_info_positions();
-        let info_widths = wrist_info_widths();
-        assert_eq!(info_positions[0], 10);
-        for i in 0..3 {
-            assert!(info_positions[i + 1] >= info_positions[i] + info_widths[i] + 8);
+        // The graph starts and ends at the same text boundaries.
+        assert_eq!(WRIST_WIDTH as i32 - 20, 540);
+        assert!(WRIST_TOP_Y >= 16);
+        assert!(WRIST_TOP_Y + 16 < 40);
+        assert!(WRIST_GRAPH_Y + WRIST_GRAPH_H < 120);
+        assert!(WRIST_BOTTOM_Y + 16 <= WRIST_HEIGHT as i32 - 14);
+    }
+    #[test]
+    fn wrist_labels_fit_in_the_canvas_with_safe_top_padding() {
+        let mut r = Renderer::for_mode(Mode::Right);
+        let (width, height) = r.dimensions();
+        assert_eq!((width, height), (560, 160));
+        assert_eq!(wrist_row_positions(wrist_top_widths())[0], 10);
+        assert_eq!(wrist_row_positions(wrist_bottom_widths())[0], 10);
+        assert!(WRIST_TOP_Y >= 16);
+        assert!(WRIST_BOTTOM_Y + 16 <= height as i32 - 14);
+        r.draw(&FrameMonitor::new(), &HardwareStats::default(), &DeviceStats::default(), 90.0);
+        // The first/last eight rows are blank padding, not text.
+        for y in [0usize, 7, height - 8, height - 1] {
+            for x in 0..width {
+                assert_eq!(pixel_at(&r, x as i32, y as i32), BG);
+            }
         }
-        assert!(info_positions[3] + info_widths[3] <= WRIST_WIDTH as i32 - 10);
-        for drops in [None, Some(0), Some(9), Some(99_999), Some(100_000),
-            Some(1_000_000), Some(u64::MAX)] {
-            assert!(compact_width(&format_wrist_drops(drops)) <= info_widths[0]);
+    }
+
+    #[test]
+    fn wrist_fields_never_expand_when_values_change() {
+        let top = wrist_top_widths();
+        let bottom = wrist_bottom_widths();
+        for drops in [None, Some(0), Some(9), Some(10), Some(999), Some(1000),
+            Some(99999), Some(100000), Some(1000000), Some(1_000_000_000),
+            Some(1_000_000_000_000), Some(u64::MAX)] {
+            assert!(wrist_text_width(&format_wrist_drops(drops)) <= top[3]);
+        }
+        for res in [None, Some(100), Some(150), Some(1000), Some(9999), Some(u16::MAX)] {
+            assert!(wrist_text_width(&format_wrist_resolution(res)) <= top[4]);
+        }
+        for mem in [(None,None), (Some(14.0),Some(16.0)),
+            (Some(128.0),Some(256.0)), (Some(999.0),Some(999.0)),
+            (Some(1024.0),Some(2048.0)),
+            (Some(f32::MAX),Some(f32::MAX))] {
+            assert!(wrist_text_width(&format!("RAM {}", used_total_wrist(mem.0,mem.1))) <= bottom[2]);
+            assert!(wrist_text_width(&format!("VRA {}", used_total_wrist(mem.0,mem.1))) <= bottom[4]);
+        }
+        for ms in [None,Some(9.2),Some(99.9),Some(99.96),Some(100.0),
+            Some(999.0),Some(999.9),Some(1000.0),Some(f32::MAX)] {
+            assert!(wrist_text_width(&format!("CPU {}",wrist_frame_time_text(ms))) <= top[1]);
+            assert!(wrist_text_width(&format!("GPU {}",wrist_frame_time_text(ms))) <= top[2]);
+        }
+    }
+    #[test]
+    fn condensed_wrist_values_fit_without_changing_field_positions() {
+        assert_eq!(wrist_frame_time_text(Some(9.2)), "09.2ms");
+        assert_eq!(wrist_frame_time_text(Some(99.96)), "100ms");
+        assert_eq!(wrist_frame_time_text(Some(100.1)), "100ms");
+        assert_eq!(wrist_frame_time_text(Some(1000.0)), "999+ms");
+        assert_eq!(format_wrist_drops(Some(9)), "DROP 9");
+        assert_eq!(format_wrist_drops(Some(10)), "DROP 10");
+        assert_eq!(format_wrist_drops(Some(1000)), "DROP 1K");
+        let top = wrist_top_widths();
+        let positions = wrist_top_positions();
+        assert!(wrist_row_required(top) <= WRIST_WIDTH as i32);
+        assert!(wrist_row_required(wrist_bottom_widths()) <= WRIST_WIDTH as i32);
+        assert_eq!(positions[3], wrist_top_positions()[3]);
+    }
+    #[test]
+    fn watch_fields_are_evenly_spaced_with_fixed_slots() {
+        // Reserved slots stay put, while shorter values are centred within
+        // their own slot. The first and last labels align to graph edges.
+        for (widths, positions) in [
+            (wrist_top_widths().to_vec(), wrist_top_positions().to_vec()),
+            (wrist_bottom_widths().to_vec(), wrist_bottom_positions().to_vec()),
+        ] {
+            let gaps: Vec<i32> = (0..widths.len()-1).map(|i|
+                positions[i + 1] - (positions[i] + widths[i])).collect();
+            assert!(gaps.iter().max().unwrap() - gaps.iter().min().unwrap() <= 1);
+            for i in 0..widths.len() {
+                let label = if i == 0 { "BAT 9%" } else { "9" };
+                let x = wrist_aligned_x(positions[i], widths[i], label, i, widths.len());
+                assert!(x >= positions[i]);
+                assert!(x + wrist_text_width(label) <= positions[i] + widths[i]);
+            }
+        }
+        let widths = wrist_top_widths();
+        let starts = wrist_top_positions();
+        let centre9 = wrist_aligned_x(starts[3], widths[3], "DROP 9", 3, 6) * 2
+            + wrist_text_width("DROP 9");
+        let centre10 = wrist_aligned_x(starts[3], widths[3], "DROP 10", 3, 6) * 2
+            + wrist_text_width("DROP 10");
+        assert!((centre9 - centre10).abs() <= 1);
+        assert_eq!(wrist_bottom_widths()[2], wrist_text_width("RAM 999T/999T"));
+        assert_eq!(wrist_bottom_widths()[4], wrist_text_width("VRA 999T/999T"));
+    }
+    #[test]
+    fn warning_colours_respect_exact_thresholds() {
+        assert_eq!(usage_colour(Some(84.99)), TEXT);
+        assert_eq!(usage_colour(Some(85.0)), RESOURCE_WARNING);
+        assert_eq!(usage_colour(Some(94.99)), RESOURCE_WARNING);
+        assert_eq!(usage_colour(Some(95.0)), RESOURCE_CRITICAL);
+        assert_eq!(usage_colour(None), TEXT);
+        assert_eq!(usage_colour(Some(f32::NAN)), TEXT);
+        assert_eq!(memory_colour(Some(84.9),Some(100.0)), TEXT);
+        assert_eq!(memory_colour(Some(85.0),Some(100.0)), RESOURCE_WARNING);
+        assert_eq!(memory_colour(Some(95.0),Some(100.0)), RESOURCE_CRITICAL);
+        assert_eq!(memory_colour(Some(100.0),Some(0.0)), TEXT);
+        assert_eq!(battery_colour(Some(16)), TEXT);
+        assert_eq!(battery_colour(Some(15)), RESOURCE_WARNING);
+        assert_eq!(battery_colour(Some(6)), RESOURCE_WARNING);
+        assert_eq!(battery_colour(Some(5)), RESOURCE_CRITICAL);
+        assert_eq!(battery_colour(Some(0)), RESOURCE_CRITICAL);
+        assert_eq!(battery_colour(None), TEXT);
+    }
+    #[test]
+    fn frame_time_labels_follow_the_same_budget_colours_as_graphs() {
+        for (normal, warning) in [(CPU,CPU_OVER_BUDGET), (GPU,GPU_OVER_BUDGET)] {
+            assert_eq!(frame_time_colour(Some(9.9),10.0,normal,warning),normal);
+            assert_eq!(frame_time_colour(Some(10.0),10.0,normal,warning),normal);
+            assert_eq!(frame_time_colour(Some(10.1),10.0,normal,warning),warning);
+            assert_eq!(frame_time_colour(None,10.0,normal,warning),normal);
         }
     }
     #[test]
@@ -609,11 +869,10 @@ mod tests {
     #[test]
     fn panels_are_shorter_but_keep_readable_text() {
         assert_eq!((WIDTH, HEIGHT), (864, 160));
-        assert_eq!((WRIST_WIDTH, WRIST_HEIGHT), (576, 164));
+        assert_eq!((WRIST_WIDTH, WRIST_HEIGHT), (560, 160));
         assert!(138 + 16 < HEIGHT as i32);
-        assert!(137 + 16 < WRIST_HEIGHT as i32);
-        assert!(36 + 55 < 100);
-        assert!(107 + 16 < 129);
+        assert!(WRIST_BOTTOM_Y + 16 <= WRIST_HEIGHT as i32 - 14);
+        assert!(33 + 76 < 113);
     }
     #[test]
     fn original_head_layout_is_preserved() {

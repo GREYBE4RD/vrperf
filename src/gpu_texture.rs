@@ -270,16 +270,20 @@ mod tests {
 
     #[test]
     fn fixed_texture_supports_head_wrist_and_return_to_head() {
-        let max_w = crate::render::WIDTH as i32;
-        let max_h = crate::render::WRIST_HEIGHT as i32;
+        let max_w = crate::render::WIDTH.max(crate::render::WRIST_WIDTH) as i32;
+        let max_h = crate::render::HEIGHT.max(crate::render::WRIST_HEIGHT) as i32;
         let head = visible_texture_region(
             max_w, crate::render::HEIGHT as i32, max_w, max_h);
         let wrist = visible_texture_region(
-            crate::render::WRIST_WIDTH as i32, max_h, max_w, max_h);
-        assert!((head.0 - 1.0).abs() < f32::EPSILON);
-        assert!((head.1 - (160.0 / 164.0)).abs() < f32::EPSILON);
-        assert!((wrist.0 - (576.0 / 864.0)).abs() < f32::EPSILON);
-        assert!((wrist.1 - 1.0).abs() < f32::EPSILON);
+            crate::render::WRIST_WIDTH as i32,
+            crate::render::WRIST_HEIGHT as i32, max_w, max_h);
+        assert_eq!(head, (crate::render::WIDTH as f32 / max_w as f32,
+            crate::render::HEIGHT as f32 / max_h as f32));
+        assert_eq!(wrist, (crate::render::WRIST_WIDTH as f32 / max_w as f32,
+            crate::render::WRIST_HEIGHT as f32 / max_h as f32));
+        for value in [head.0, head.1, wrist.0, wrist.1] {
+            assert!((0.0..=1.0).contains(&value));
+        }
         assert_eq!(head, visible_texture_region(max_w, 160, max_w, max_h));
     }
 }

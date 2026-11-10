@@ -333,7 +333,7 @@ fn create_uploader(config: &Config, renderer: &Renderer,
     let (width, height) = renderer.dimensions();
     // A single fixed allocation fits either head or wrist dimensions.
     // Mode switching updates only the visible texture coordinates.
-    match GlUploader::new(render::WIDTH, render::WRIST_HEIGHT) {
+    match GlUploader::new(render::WIDTH.max(render::WRIST_WIDTH), render::HEIGHT.max(render::WRIST_HEIGHT)) {
         Ok(mut gl) => match gl.set_dimensions(handle, width, height) {
             Ok(()) => Some(gl),
             Err(error) => { eprintln!("vrperf: {error}; using raw uploads instead"); None }

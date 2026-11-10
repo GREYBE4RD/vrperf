@@ -74,10 +74,10 @@ sudo apt install cargo rustc build-essential cmake clang libclang-dev libegl-dev
 
 Your distribution's Rust version must support the 2024 edition. If it does not, use a current Rust toolchain from [rustup](https://rustup.rs/).
 
-Download a versioned source ZIP, extract it, and open a terminal in its project directory. For the v1.24 testing archive:
+Download a versioned source ZIP, extract it, and open a terminal in its project directory. For a v1.31 development archive:
 
 ```bash
-unzip vrperf-v1.24.zip && cd vrperf-v1.24
+unzip vrperf-v1.31.zip && cd vrperf-v1.31
 ```
 
 Or, once the version you want has been published to GitHub, clone the repository:
@@ -134,7 +134,7 @@ Uninstalling removes the executable and SteamVR registration but leaves saved pr
 
 ## Understanding the display
 
-vrperf shows frame times measured **on the gaming PC**, not the time needed to encode, transmit or decode the headset video stream. The HEAD panel is larger; the LEFT and RIGHT panels use a smaller watch layout. Both use the same graph colours.
+vrperf shows frame times measured **on the gaming PC**, not the time needed to encode, transmit or decode the headset video stream. The HEAD panel is larger; the LEFT and RIGHT panels use a smaller watch layout. The watch uses a compact 560 x 160 pixel panel with top and bottom padding and a slightly narrower 16-pixel-high font. Its on-screen physical width is also reduced by about 4% from v1.30. This keeps the graph and both text rows aligned without cutting off the top line. Both use the same graph colours.
 
 | Graph element | Colour | Meaning |
 | --- | --- | --- |
@@ -145,11 +145,25 @@ vrperf shows frame times measured **on the gaming PC**, not the time needed to e
 | Horizontal dashed line | Muted amber | Frame-time budget for the current refresh rate |
 | Vertical markers | Red | Dropped frames |
 
-**Only the parts of a trace over budget change colour.** A trace turns back to blue or green as soon as it returns within budget. The change happens where the line crosses the limit, not across an entire spike or history section.
+**Only the parts of a trace over budget change colour.** A trace turns back to blue or green as soon as it returns within budget. The change happens where the line crosses the limit, not across an entire spike or history section. The numeric CPU and GPU frame-time readings use the same normal and warning colours.
 
 The frame-time budget is `1000 ÷ headset refresh rate` in milliseconds. At **90 Hz**, the budget is **11.11 ms** per frame. A CPU or GPU value above 11.11 ms exceeds that budget. This is a warning about frame time, not proof that the PC alone caused a dropped frame.
 
-Other values include application FPS, CPU and GPU use, GPU memory (VRAM), system memory (RAM), dropped-frame counts, headset and controller battery levels, SteamVR resolution settings, and the local time. Some values are unavailable on some hardware and appear as `--`.
+The watch has one information row above the graph and one below. The top row shows whole-number FPS, CPU and GPU frame time in milliseconds, dropped frames and resolution. The bottom row shows headset battery (**BAT**), CPU use, system memory (**RAM**), GPU use and video memory (**VRA**) in that order. The clock is at the right end of the top row. It does not show controller batteries, refresh rate or a numeric frame-budget field. The dashed frame-budget line remains in the graph.
+
+Watch memory readings show used/total GiB without a `G` suffix, such as `VRA 14/16` or `RAM 22/32`. Very large values use `T` for TiB. To save space, watch frame times of 100 ms or more use whole milliseconds, and dropped-frame counts of 1,000 or more use K/M/B suffixes. Fields have fixed reserved widths, with centred readings in the middle slots and edge-aligned fields at both ends. This spaces labels evenly and prevents neighbouring fields from moving when FPS, frame times or dropped-frame counts gain digits. Frame-time units are shown as lowercase `ms` in both modes. The graph aligns with the full width of the text rows.
+
+**Resource warning colours apply in both HEAD and watch modes:**
+
+| Measurement | Normal | Orange | Red |
+| --- | --- | --- | --- |
+| CPU or GPU utilisation | Below 85% | 85% to below 95% | 95% or more |
+| RAM or video memory use | Below 85% | 85% to below 95% | 95% or more |
+| Headset battery, and controller batteries on HEAD | Above 15% | 6–15% remaining | 5% or less remaining |
+
+Memory warnings use unrounded used/total values. Battery warnings apply to low remaining charge. Missing values have no warning colour.
+
+Other values include dropped-frame counts, SteamVR resolution settings and the local time. Some readings are unavailable on some hardware and appear as `--`.
 
 `RES` combines the SteamVR global and per-application resolution multipliers where available. It does **not** show a game's internal render resolution or upscaling setting.
 
@@ -201,6 +215,7 @@ Report problems on [GitHub Issues](https://github.com/GREYBE4RD/vrperf/issues). 
 ### Display and monitoring details
 
 - The graph puts frame times up to the budget in its lower 65% and times from the budget to twice the budget in the upper 35%. Larger spikes clip at the top; the numeric reading still shows the actual time.
+- The compact watch has two text rows with one graph between them. The clock is at the far right of the upper row. The 560 x 160 raster keeps the 16-pixel font height and narrows the physical watch by about 4% relative to v1.30. Existing saved watch positions, orientations and width values remain unchanged; the effective watch width is now smaller.
 - Each graph covers individual frames, not an averaged line. Red dropped-frame markers appear above both traces.
 - Watch visibility uses calibrated face-angle thresholds of 40° to show and 60° to hide, together with gaze-angle thresholds of 55° to show and 70° to hide. This prevents rapid toggling near the edge. There is no fade or wait timer.
 - The panel uses straight RGBA with fixed OpenVR opacity of 0.93. The OpenGL texture path is the default; the raw path may flicker.

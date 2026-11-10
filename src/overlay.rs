@@ -8,6 +8,10 @@ const WATCH_SHOW_COS: f32 = 0.766_044_44; // 40 degrees
 const WATCH_HIDE_COS: f32 = 0.5; // 60 degrees
 const GAZE_SHOW_COS: f32 = 0.573_576_45; // 55 degrees
 const GAZE_HIDE_COS: f32 = 0.342_020_15; // 70 degrees
+// The watch raster is 560/640 of its previous width. Scale the SteamVR
+// physical width by the same ratio so glyphs keep their apparent size.
+// Leave saved calibration widths untouched; the change is reversible.
+const WATCH_DISPLAY_WIDTH_RATIO: f32 = crate::render::WRIST_WIDTH as f32 / 640.0;
 
 fn dot(a: [f32; 3], b: [f32; 3]) -> f32 { (0..3).map(|i| a[i]*b[i]).sum() }
 fn norm(v: [f32; 3]) -> f32 { dot(v,v).sqrt() }
@@ -66,7 +70,7 @@ impl Positioner {
     pub fn mount(&self, mode: Mode) -> Option<WatchMount> { hand_index(mode).map(|i|self.mounts[i]) }
     pub fn calibrating(&self) -> Option<Mode> { self.active.as_ref().map(|c|c.side) }
     pub fn width(&self, mode: Mode, head_width: f32) -> f32 {
-        self.mount(mode).map_or(head_width, |m|m.width_m)
+        self.mount(mode).map_or(head_width, |m| m.width_m * WATCH_DISPLAY_WIDTH_RATIO)
     }
     pub fn start_calibration(&mut self, side: Mode) -> Result<(), String> {
         let i=hand_index(side).ok_or("Select a watch hand to calibrate")?;
@@ -199,6 +203,16 @@ impl Positioner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn watch_width_is_narrower_without_changing_saved_calibration() {
+        let saved = WatchMount::default();
+        let pos = Positioner::new([Some(saved), None]);
+        assert!((pos.width(Mode::Left, 0.415) - saved.width_m * WATCH_DISPLAY_WIDTH_RATIO).abs() < 0.000001);
+        assert!((pos.width(Mode::Right, 0.415) - saved.width_m * WATCH_DISPLAY_WIDTH_RATIO).abs() < 0.000001);
+        assert_eq!(pos.width(Mode::Head, 0.415), 0.415);
+        assert_eq!(pos.mount(Mode::Left), Some(saved));
+        assert_eq!(pos.mount(Mode::Right), Some(saved));
+    }
     #[test]
     fn alignment_follows_saved_watch_orientation() {
         let controller=[[1.,0.,0.,0.],[0.,1.,0.,0.],[0.,0.,1.,0.]];

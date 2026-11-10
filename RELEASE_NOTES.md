@@ -1,3 +1,76 @@
+# vrperf v1.31.0 (development layout refinement)
+
+- Narrow the watch from 584 x 160 to 560 x 160 pixels. Reduce its physical width proportionally, without changing saved calibrations.
+- Keep the font at 16 pixels high; slightly reduce watch-only character width to fit the reserved fields.
+- Distribute gaps evenly across the top and bottom rows. Centre shorter readings within their fixed-width slots to avoid large visual gaps while keeping other fields stationary when counts change.
+- Order watch footer BAT, CPU, RAM, GPU, VRA; keep FPS, CPU ms, GPU ms, DROP, RES and clock on top.
+- Show lowercase `ms` in numeric frame-time readings and the HEAD budget label.
+- Keep graph aligned to both rows. Add tests for fixed slots and the shortened watch layout.
+- SteamVR headset validation is required before publishing.
+
+---
+
+# vrperf v1.30.0 (development watch compaction)
+
+- Reduce watch raster width from 640 to 584 pixels, preserving the 160-pixel height and 16-pixel text height.
+- Reduce the SteamVR watch physical width by the same approximately 9% ratio. Keep saved calibration data unchanged, and leave HEAD size and controls unchanged.
+- Reduce reserved field spacing from 6 to 2 pixels. Keep fixed field starts so DROP 9 becoming DROP 10 never moves other labels.
+- On the watch only, show whole-millisecond frame times at 100 ms and above, and abbreviate dropped-frame counts from 1,000 upward.
+- Keep two aligned information rows, the full-width graph, warning colours and calibration behaviour.
+- Add tests for condensed values and effective physical watch width. Verify in SteamVR before publishing.
+
+---
+
+# vrperf v1.29.0 (development compile correction)
+
+- Correct the watch helper function return types: the top row has six fields (FPS, CPU ms, GPU ms, DROP, RES, time) and the bottom row has five fields (BAT, CPU%, GPU%, VRA, RAM).
+- Fix the Rust E0308 compile errors in v1.28 without changing row spacing, graph dimensions, colours, or watch calibration.
+- Run Cargo tests and verify the updated watch in SteamVR before publishing.
+
+---
+
+# vrperf v1.28.0 (development watch layout correction)
+
+- Reduce watch raster width from 800 to 640 pixels while increasing its height from 144 to 160. The physical watch width and saved calibration are unchanged; the panel has a less stretched aspect ratio.
+- Reserve 16 pixels above the first row and 14 pixels below the second row to avoid the clipping reported from v1.27 headset testing.
+- Use a horizontally condensed watch-only bitmap font with its original 16-pixel glyph height. Keep head mode untouched.
+- Make both text rows and the graph span the same left/right boundaries. Keep fixed slots for changing DROP, FPS, RES and memory values.
+- Move the clock to the end of the top row after measuring both maximum row widths. Remove the layout helper that caused a dead-code warning in release builds.
+- Add margin and layout tests. Keep GPU texture height the same in both modes to avoid vertical texture-region cropping.
+- Requires cargo tests, release compilation and an in-headset check before publication. GitHub is not changed.
+
+---
+
+# vrperf v1.27.0 (development test fix)
+
+- Correct the OpenGL texture-region unit test to use the wrist renderer's actual 144-pixel height, not the 160-pixel backing texture height. This matches the existing runtime call to `GlUploader::set_dimensions`.
+- No changes to overlay layout, rendering, tracking, calibration, resource warnings or GPU upload behaviour.
+- Requires the Rust test suite and SteamVR headset check before release.
+
+---
+
+# vrperf v1.26.0 (development fix)
+
+- Fix watch row layout overflow by allowing enough pixel width for the longest reserved values, while keeping the watch's calibrated physical width and two-row design.
+- Fix OpenGL texture region tests to use the actual maximum renderer dimensions. The head and wrist UV regions are checked against their respective dimensions.
+- Keep the v1.25 resource warnings, frame-time colours, and calibration behaviour unchanged.
+- Requires Rust tests and in-headset checks before publishing a stable release.
+
+---
+
+# vrperf v1.25.0 (development)
+
+- Redesign the LEFT and RIGHT watch display with one information row above the graph and one below. The first row has integer FPS, CPU/GPU frame time, dropped frames and resolution; the second has headset battery (BAT), CPU/GPU utilisation, video memory (VRA), RAM and the clock.
+- Position the clock on the bottom row to balance maximum text widths. Use fixed field widths so DROP 9 to 10 and other changing readings never shift adjacent labels. Align the graph with the text-row boundaries.
+- Shorten the watch memory readouts to used/total GiB without G suffixes, with TiB notation for very large capacities. Remove unneeded controller battery, refresh-rate and numeric frame-budget fields from the watch. Keep the graph's budget line.
+- Colour numeric CPU/GPU frame-time readings blue/green within budget and amber/orange above budget, matching their traces in both HEAD and watch modes.
+- Apply orange utilisation and memory warnings from 85% and red warnings from 95%. Show battery warnings in orange at 6–15% and red at 0–5% remaining. Apply warnings to applicable HEAD and watch readings.
+- Keep the watch's calibrated physical width and existing grip calibration, visibility and persistence behaviour. Reduce the watch panel's height and retain the full graph height within it.
+- Add tests for layout spacing, changing field lengths, threshold boundaries and warning colours. Update the README while retaining both screenshots.
+- The update needs an Arch Linux build and Steam Frame headset check before stable release.
+
+---
+
 # vrperf v1.24.0
 
 - Change CPU graph traces from blue to amber/yellow only where their frame time exceeds the current budget.
