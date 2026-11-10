@@ -1,3 +1,14 @@
+# vrperf v1.32.0
+
+- Narrow the watch from 560 x 160 to 550 x 160 pixels, with the corresponding physical-width change. Keep the same glyph height, graph height and saved watch calibrations.
+- Space the visible fields evenly across both top and bottom watch rows, using current text widths. Fields can shift when readings gain digits; even the widest formatted readings fit without overlap.
+- Round watch FPS readings upward to the next whole frame per second. Keep the HEAD FPS precision unchanged.
+- Change battery warnings in both HEAD and watch modes: orange at 11–20%, red at 0–10%.
+- Remove the "FIXED OPACITY" dashboard label without changing the existing opacity setting.
+- Update layout, FPS and battery threshold tests and the display documentation.
+
+---
+
 # vrperf v1.31.0 (development layout refinement)
 
 - Narrow the watch from 584 x 160 to 560 x 160 pixels. Reduce its physical width proportionally, without changing saved calibrations.

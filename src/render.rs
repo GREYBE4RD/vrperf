@@ -10,7 +10,7 @@ pub const WIDTH: usize = 864;
 pub const HEIGHT: usize = 160;
 // Keep the watch compact. Matching the head texture height also avoids
 // vertically cropped OpenGL texture bounds on mode switches.
-pub const WRIST_WIDTH: usize = 560;
+pub const WRIST_WIDTH: usize = 550;
 pub const WRIST_HEIGHT: usize = 160;
 const WRIST_TOP_Y: i32 = 16;
 const WRIST_GRAPH_Y: i32 = 44;
@@ -132,16 +132,10 @@ impl Renderer {
     fn draw_wrist(&mut self, monitor: &FrameMonitor, hw: &HardwareStats,
         devices: &DeviceStats, hz: f32, budget: f32) {
         let latest = monitor.latest();
-        // One information row above the graph and one below. Both rows use
-        // reserved widths, so changing values cannot move neighbouring fields.
-        // The clock fits better at the end of the top row. Reserve the
-        // longest values for both rows so changing numbers never shift text.
-        let fps = monitor.current_fps(hz).map_or_else(|| "FPS --".into(), |value| {
-            if value.is_finite() && value >= 0.0 {
-                if value >= 999.5 { "FPS 999+".into() }
-                else { format!("FPS {value:.0}") }
-            } else { "FPS --".into() }
-        });
+        // One information row above the graph and one below. Space the
+        // *visible* readings evenly; maximum formatted values still fit.
+        // The clock stays at the right edge of the top row.
+        let fps = wrist_fps_text(monitor.current_fps(hz));
         let top = [
             (fps, TEXT),
             (format!("CPU {}", wrist_frame_time_text(latest.map(|f| f.cpu_ms))),
@@ -152,10 +146,9 @@ impl Renderer {
             (format_wrist_resolution(devices.display_resolution(monitor.is_active())), MUTED),
             (devices::local_clock(), TEXT),
         ];
-        let top_slots = wrist_top_widths();
-        for (i, ((text, colour), x)) in top.iter().zip(wrist_top_positions()).enumerate() {
-            self.label_wrist(wrist_aligned_x(x, top_slots[i], text, i, top.len()),
-                WRIST_TOP_Y, text, *colour);
+        let top_widths: [i32; 6] = std::array::from_fn(|i| wrist_text_width(&top[i].0));
+        for ((text, colour), x) in top.iter().zip(wrist_row_positions(top_widths)) {
+            self.label_wrist(x, WRIST_TOP_Y, text, *colour);
         }
         // Top padding keeps every glyph fully inside the visible panel.
         self.rect(10, 40, WRIST_WIDTH as i32 - 20, 1, [59, 76, 94, 255]);
@@ -171,10 +164,9 @@ impl Renderer {
             (format!("VRA {}", used_total_wrist(hw.vram_used_gib, hw.vram_total_gib)),
                 memory_colour(hw.vram_used_gib, hw.vram_total_gib)),
         ];
-        let bottom_slots = wrist_bottom_widths();
-        for (i, ((text, colour), x)) in bottom.iter().zip(wrist_bottom_positions()).enumerate() {
-            self.label_wrist(wrist_aligned_x(x, bottom_slots[i], text, i, bottom.len()),
-                WRIST_BOTTOM_Y, text, *colour);
+        let bottom_widths: [i32; 5] = std::array::from_fn(|i| wrist_text_width(&bottom[i].0));
+        for ((text, colour), x) in bottom.iter().zip(wrist_row_positions(bottom_widths)) {
+            self.label_wrist(x, WRIST_BOTTOM_Y, text, *colour);
         }
     }
 
@@ -237,7 +229,7 @@ impl Renderer {
     }
 
     // Wrist-only font: preserve the 16px height, with 1.4 pixels per bitmap
-    // column horizontally. This keeps both reserved rows within 560 pixels
+    // column horizontally. This keeps both rows within 550 pixels
     // without changing the HEAD font.
     fn label_wrist(&mut self, x: i32, y: i32, text: &str, color: [u8; 4]) {
         let mut cursor = x;
@@ -393,20 +385,23 @@ fn top_row_positions() -> [i32; 7] {
     positions
 }
 
-// Reserve space for the longest expected values in the two watch rows.
-// The positions are based on slot widths, not current measurements. Even a
-// DROP 9 -> DROP 10 change leaves every other label in the same place.
+// Maximum formatted widths used to test that both watch rows fit, even if
+// every field reaches its widest display value at the same time.
+#[cfg(test)]
 fn wrist_top_widths() -> [i32; 6] {
     ["FPS 999+", "CPU 999+ms", "GPU 999+ms", "DROP 999M", "RES 9999%", "23:59"]
         .map(wrist_text_width)
 }
 
+#[cfg(test)]
 fn wrist_bottom_widths() -> [i32; 5] {
     ["BAT 100%", "CPU 100%", "RAM 999T/999T", "GPU 100%", "VRA 999T/999T"]
         .map(wrist_text_width)
 }
 
-// Compact row spacing. The reserved slots still prevent labels from shifting.
+// Distribute visible gaps evenly using the *rendered* field widths. Fixed
+// maximum-width slots made short readings appear unevenly spaced. Values
+// change position only when the length of another displayed field changes.
 const WRIST_ROW_GAP: i32 = 2;
 
 fn wrist_row_required<const N: usize>(widths: [i32; N]) -> i32 {
@@ -430,23 +425,16 @@ fn wrist_row_positions<const N: usize>(widths: [i32; N]) -> [i32; N] {
     positions
 }
 
-fn wrist_top_positions() -> [i32; 6] {
-    wrist_row_positions(wrist_top_widths())
-}
-fn wrist_bottom_positions() -> [i32; 5] {
-    wrist_row_positions(wrist_bottom_widths())
-}
 
-// Centre shorter readings within their reserved slots. Anchor the first and
-// last fields to the graph edges, and never move neighbouring fields when a
-// number gains digits (notably DROP 9 -> DROP 10).
-fn wrist_aligned_x(start: i32, slot_width: i32, text: &str,
-    index: usize, field_count: usize) -> i32 {
-    let spare = (slot_width - wrist_text_width(text)).max(0);
-    let offset = if index == 0 { 0 }
-        else if index + 1 == field_count { spare }
-        else { spare / 2 };
-    start + offset
+// Always round displayed watch FPS up to a whole number, without exceeding
+// the maximum reserved "FPS 999+" field width.
+fn wrist_fps_text(value: Option<f32>) -> String {
+    match value {
+        Some(fps) if fps.is_finite() && (0.0..=999.0).contains(&fps) =>
+            format!("FPS {:.0}", fps.ceil()),
+        Some(fps) if fps.is_finite() && fps > 999.0 => "FPS 999+".into(),
+        _ => "FPS --".into(),
+    }
 }
 
 // Exact below 1000; above that use compact K/M/B/T/P suffixes.
@@ -554,8 +542,8 @@ fn memory_colour(used: Option<f32>, total: Option<f32>) -> [u8; 4] {
 }
 fn battery_colour(value: Option<u8>) -> [u8; 4] {
     match value {
-        Some(0..=5) => RESOURCE_CRITICAL,
-        Some(6..=15) => RESOURCE_WARNING,
+        Some(0..=10) => RESOURCE_CRITICAL,
+        Some(11..=20) => RESOURCE_WARNING,
         _ => TEXT,
     }
 }
@@ -703,7 +691,7 @@ mod tests {
         assert_eq!(&r.pixels[offset..offset + 4], &DROPPED[..]);
     }
     #[test]
-    fn wrist_layout_uses_two_fixed_rows_and_full_width_graph() {
+    fn wrist_layout_uses_evenly_spaced_rows_and_full_width_graph() {
         let mut r = Renderer::for_mode(Mode::Left);
         assert_eq!(r.dimensions(), (WRIST_WIDTH, WRIST_HEIGHT));
         r.draw(&FrameMonitor::new(), &HardwareStats::default(), &DeviceStats::default(), 90.0);
@@ -716,8 +704,8 @@ mod tests {
             .max(wrist_row_required([bottom[0], bottom[1], bottom[2], bottom[3], bottom[4], top[5]]));
         assert!(clock_top <= clock_bottom);
         for (widths, positions) in [
-            (wrist_top_widths().to_vec(), wrist_top_positions().to_vec()),
-            (wrist_bottom_widths().to_vec(), wrist_bottom_positions().to_vec()),
+            (top.to_vec(), wrist_row_positions(top).to_vec()),
+            (bottom.to_vec(), wrist_row_positions(bottom).to_vec()),
         ] {
             assert_eq!(positions[0], 10);
             for i in 0..widths.len() - 1 {
@@ -728,7 +716,7 @@ mod tests {
                 WRIST_WIDTH as i32 - 10);
         }
         // The graph starts and ends at the same text boundaries.
-        assert_eq!(WRIST_WIDTH as i32 - 20, 540);
+        assert_eq!(WRIST_WIDTH as i32 - 20, 530);
         assert!(WRIST_TOP_Y >= 16);
         assert!(WRIST_TOP_Y + 16 < 40);
         assert!(WRIST_GRAPH_Y + WRIST_GRAPH_H < 120);
@@ -738,7 +726,7 @@ mod tests {
     fn wrist_labels_fit_in_the_canvas_with_safe_top_padding() {
         let mut r = Renderer::for_mode(Mode::Right);
         let (width, height) = r.dimensions();
-        assert_eq!((width, height), (560, 160));
+        assert_eq!((width, height), (550, 160));
         assert_eq!(wrist_row_positions(wrist_top_widths())[0], 10);
         assert_eq!(wrist_row_positions(wrist_bottom_widths())[0], 10);
         assert!(WRIST_TOP_Y >= 16);
@@ -753,7 +741,7 @@ mod tests {
     }
 
     #[test]
-    fn wrist_fields_never_expand_when_values_change() {
+    fn wrist_worst_case_field_widths_fit_in_550_pixels() {
         let top = wrist_top_widths();
         let bottom = wrist_bottom_widths();
         for drops in [None, Some(0), Some(9), Some(10), Some(999), Some(1000),
@@ -778,7 +766,7 @@ mod tests {
         }
     }
     #[test]
-    fn condensed_wrist_values_fit_without_changing_field_positions() {
+    fn condensed_wrist_values_fit_at_550_pixels() {
         assert_eq!(wrist_frame_time_text(Some(9.2)), "09.2ms");
         assert_eq!(wrist_frame_time_text(Some(99.96)), "100ms");
         assert_eq!(wrist_frame_time_text(Some(100.1)), "100ms");
@@ -787,38 +775,46 @@ mod tests {
         assert_eq!(format_wrist_drops(Some(10)), "DROP 10");
         assert_eq!(format_wrist_drops(Some(1000)), "DROP 1K");
         let top = wrist_top_widths();
-        let positions = wrist_top_positions();
+        let positions = wrist_row_positions(top);
         assert!(wrist_row_required(top) <= WRIST_WIDTH as i32);
         assert!(wrist_row_required(wrist_bottom_widths()) <= WRIST_WIDTH as i32);
-        assert_eq!(positions[3], wrist_top_positions()[3]);
+        assert!(positions[3] > positions[2] + top[2]);
     }
     #[test]
-    fn watch_fields_are_evenly_spaced_with_fixed_slots() {
-        // Reserved slots stay put, while shorter values are centred within
-        // their own slot. The first and last labels align to graph edges.
-        for (widths, positions) in [
-            (wrist_top_widths().to_vec(), wrist_top_positions().to_vec()),
-            (wrist_bottom_widths().to_vec(), wrist_bottom_positions().to_vec()),
+    fn wrist_visible_gaps_are_even_for_short_and_long_values() {
+        // Test rendered widths, not only the longest reserved values. Every
+        // visible gap must differ by at most one pixel, even with short DROP.
+        for row in [
+            vec!["FPS 71", "CPU 03.3ms", "GPU 10.2ms", "DROP 1", "RES 250%", "16:48"],
+            vec!["FPS 999+", "CPU 999+ms", "GPU 999+ms", "DROP 999M", "RES 9999%", "23:59"],
+            vec!["BAT 18%", "CPU 21%", "RAM 14/31", "GPU 74%", "VRA 11/16"],
+            vec!["BAT 100%", "CPU 100%", "RAM 999T/999T", "GPU 100%", "VRA 999T/999T"],
         ] {
+            let widths: Vec<i32> = row.iter().map(|text| wrist_text_width(text)).collect();
+            // Use five- or six-field arrays to exercise the actual layout.
+            let positions = if widths.len() == 6 {
+                wrist_row_positions(std::array::from_fn::<_, 6, _>(|i| widths[i])).to_vec()
+            } else {
+                wrist_row_positions(std::array::from_fn::<_, 5, _>(|i| widths[i])).to_vec()
+            };
+            assert_eq!(positions[0], 10);
             let gaps: Vec<i32> = (0..widths.len()-1).map(|i|
-                positions[i + 1] - (positions[i] + widths[i])).collect();
+                positions[i+1] - positions[i] - widths[i]).collect();
+            assert!(gaps.iter().all(|gap| *gap >= WRIST_ROW_GAP));
             assert!(gaps.iter().max().unwrap() - gaps.iter().min().unwrap() <= 1);
-            for i in 0..widths.len() {
-                let label = if i == 0 { "BAT 9%" } else { "9" };
-                let x = wrist_aligned_x(positions[i], widths[i], label, i, widths.len());
-                assert!(x >= positions[i]);
-                assert!(x + wrist_text_width(label) <= positions[i] + widths[i]);
-            }
+            assert_eq!(positions[widths.len()-1] + widths[widths.len()-1],
+                WRIST_WIDTH as i32 - 10);
         }
-        let widths = wrist_top_widths();
-        let starts = wrist_top_positions();
-        let centre9 = wrist_aligned_x(starts[3], widths[3], "DROP 9", 3, 6) * 2
-            + wrist_text_width("DROP 9");
-        let centre10 = wrist_aligned_x(starts[3], widths[3], "DROP 10", 3, 6) * 2
-            + wrist_text_width("DROP 10");
-        assert!((centre9 - centre10).abs() <= 1);
-        assert_eq!(wrist_bottom_widths()[2], wrist_text_width("RAM 999T/999T"));
-        assert_eq!(wrist_bottom_widths()[4], wrist_text_width("VRA 999T/999T"));
+    }
+    #[test]
+    fn wrist_fps_always_rounds_up() {
+        assert_eq!(wrist_fps_text(Some(71.0)), "FPS 71");
+        assert_eq!(wrist_fps_text(Some(71.01)), "FPS 72");
+        assert_eq!(wrist_fps_text(Some(70.9)), "FPS 71");
+        assert_eq!(wrist_fps_text(Some(999.0)), "FPS 999");
+        assert_eq!(wrist_fps_text(Some(999.1)), "FPS 999+");
+        assert_eq!(wrist_fps_text(None), "FPS --");
+        assert_eq!(wrist_fps_text(Some(f32::NAN)), "FPS --");
     }
     #[test]
     fn warning_colours_respect_exact_thresholds() {
@@ -832,10 +828,10 @@ mod tests {
         assert_eq!(memory_colour(Some(85.0),Some(100.0)), RESOURCE_WARNING);
         assert_eq!(memory_colour(Some(95.0),Some(100.0)), RESOURCE_CRITICAL);
         assert_eq!(memory_colour(Some(100.0),Some(0.0)), TEXT);
-        assert_eq!(battery_colour(Some(16)), TEXT);
-        assert_eq!(battery_colour(Some(15)), RESOURCE_WARNING);
-        assert_eq!(battery_colour(Some(6)), RESOURCE_WARNING);
-        assert_eq!(battery_colour(Some(5)), RESOURCE_CRITICAL);
+        assert_eq!(battery_colour(Some(21)), TEXT);
+        assert_eq!(battery_colour(Some(20)), RESOURCE_WARNING);
+        assert_eq!(battery_colour(Some(11)), RESOURCE_WARNING);
+        assert_eq!(battery_colour(Some(10)), RESOURCE_CRITICAL);
         assert_eq!(battery_colour(Some(0)), RESOURCE_CRITICAL);
         assert_eq!(battery_colour(None), TEXT);
     }
@@ -869,7 +865,7 @@ mod tests {
     #[test]
     fn panels_are_shorter_but_keep_readable_text() {
         assert_eq!((WIDTH, HEIGHT), (864, 160));
-        assert_eq!((WRIST_WIDTH, WRIST_HEIGHT), (560, 160));
+        assert_eq!((WRIST_WIDTH, WRIST_HEIGHT), (550, 160));
         assert!(138 + 16 < HEIGHT as i32);
         assert!(WRIST_BOTTOM_Y + 16 <= WRIST_HEIGHT as i32 - 14);
         assert!(33 + 76 < 113);

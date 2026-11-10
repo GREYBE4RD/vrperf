@@ -108,7 +108,6 @@ impl Dashboard {
         self.image.text(if state.enabled {93} else {83},199,
             if state.enabled {"ON"} else {"OFF"},3,WHITE);
         self.image.text(272,184,"HEAD / WATCH L/R",1,DIM);
-        self.image.text(272,210,"FIXED OPACITY",2,DIM);
         self.image.text(16,251,"CALIBRATE WATCH",2,DIM);
         for (mode,x,label) in [(Mode::Left,16,"CAL LEFT"),(Mode::Right,268,"CAL RIGHT")] {
             self.image.rect(x,273,228,44,if state.calibrating==Some(mode) {ACTIVE} else {INACTIVE});

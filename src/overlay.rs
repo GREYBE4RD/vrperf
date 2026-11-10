@@ -8,7 +8,7 @@ const WATCH_SHOW_COS: f32 = 0.766_044_44; // 40 degrees
 const WATCH_HIDE_COS: f32 = 0.5; // 60 degrees
 const GAZE_SHOW_COS: f32 = 0.573_576_45; // 55 degrees
 const GAZE_HIDE_COS: f32 = 0.342_020_15; // 70 degrees
-// The watch raster is 560/640 of its previous width. Scale the SteamVR
+// The watch raster is 550/640 of its previous width. Scale the SteamVR
 // physical width by the same ratio so glyphs keep their apparent size.
 // Leave saved calibration widths untouched; the change is reversible.
 const WATCH_DISPLAY_WIDTH_RATIO: f32 = crate::render::WRIST_WIDTH as f32 / 640.0;
