@@ -1,4 +1,7 @@
 //! Minimal optional shared-library loader. GPU vendor libraries are never mandatory.
+//! If NVML or Level Zero cannot be loaded, `hardware.rs` tries other detected
+//! GPU candidates. AMD uses DRM sysfs directly; there is no generic sysfs
+//! fallback for NVIDIA or Intel, so their unavailable counters show as missing.
 use std::ffi::{CStr, c_void};
 
 pub(super) struct DynLib(*mut c_void);

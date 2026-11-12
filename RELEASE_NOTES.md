@@ -1,3 +1,26 @@
+# vrperf v1.34.0 (2026-11-12)
+
+- Shorten the dashboard position heading to "POSITION".
+- Update the idle calibration instructions to: select a watch, close the SteamVR dashboard, grip the other controller and move the overlay, then reopen the dashboard to save or cancel.
+- Remove the "SAVE PERSISTS AFTER RESTART" instruction from all dashboard calibration states. Saved calibration data remains persistent; only the on-screen text changes.
+- Use narrower 16-pixel-high instruction lettering so the longer third instruction fits inside the existing 512 x 600 dashboard without clipping. Keep all other labels, controls and layout unchanged.
+- Update the instruction layout tests and README. Verify the updated dashboard in SteamVR.
+
+---
+
+# vrperf v1.33.0 (2026-11-11)
+
+- Redesign the SteamVR dashboard with separate ON and OFF buttons at the top, followed by the position selection. Keep the dashboard at 512 x 600 pixels and preserve calibration controls and resolution readouts.
+- Update the title to "vrperf" / "PCVR Performance Overlay" and the position label to "POSITION HEAD / WATCH L / R". Do not add a fixed-opacity label.
+- Make ON and OFF actions idempotent so selecting an already active state has no effect; keep visibility locked on during calibration.
+- Restore the original v1.11 uncalibrated controller-relative watch offset (Y +0.12 m, Z -0.13 m) for first-use positioning. Saved left/right calibrations remain unchanged.
+- Add on-screen confirmation that saved calibrations survive restarts, and document what happens when calibration is cancelled or interrupted.
+- Clarify GPU monitoring fallback behaviour: AMD uses DRM sysfs; missing NVIDIA NVML or Intel Level Zero means those GPU counters are unavailable unless another supported device is detected.
+- Improve installation and removal error messages with the affected file paths. Document and validate EGL texture dimension and RGBA buffer assumptions.
+- Update dashboard tests and documentation. Runtime behaviour requires an in-headset check before release.
+
+---
+
 # vrperf v1.32.0
 
 - Narrow the watch from 560 x 160 to 550 x 160 pixels, with the corresponding physical-width change. Keep the same glyph height, graph height and saved watch calibrations.

@@ -5,6 +5,7 @@ use font8x8::{BASIC_FONTS, UnicodeFonts};
 use openvr::overlay::OverlayHandle;
 use std::mem;
 
+const INSTRUCTION_ADVANCE: i32 = 14; // 14 px wide, 16 px high for long help lines.
 const W: usize = 512;
 const H: usize = 600;
 const THUMB: usize = 96;
@@ -35,17 +36,19 @@ impl State {
 }
 
 #[derive(Debug,Clone,Copy,PartialEq)]
-pub enum Action { Toggle, SetMode(Mode), StartCalibration(Mode), SaveCalibration,
+pub enum Action { SetVisible(bool), SetMode(Mode), StartCalibration(Mode), SaveCalibration,
     CancelCalibration, SizeDelta(f32) }
 
 fn hit(x:f32,y:f32,b:(f32,f32,f32,f32))->bool {
     x.is_finite() && y.is_finite() && x>=b.0 && x<=b.2 && y>=b.1 && y<=b.3
 }
 fn action_at(x:f32,y:f32)->Option<Action> {
-    if hit(x,y,(16.,101.,165.,148.)) {return Some(Action::SetMode(Mode::Head));}
-    if hit(x,y,(181.,101.,330.,148.)) {return Some(Action::SetMode(Mode::Left));}
-    if hit(x,y,(346.,101.,496.,148.)) {return Some(Action::SetMode(Mode::Right));}
-    if hit(x,y,(16.,181.,224.,242.)) {return Some(Action::Toggle);}
+    // Separate ON/OFF buttons are idempotent; they do not toggle accidentally.
+    if hit(x,y,(16.,98.,244.,150.)) {return Some(Action::SetVisible(true));}
+    if hit(x,y,(268.,98.,496.,150.)) {return Some(Action::SetVisible(false));}
+    if hit(x,y,(16.,194.,165.,240.)) {return Some(Action::SetMode(Mode::Head));}
+    if hit(x,y,(181.,194.,330.,240.)) {return Some(Action::SetMode(Mode::Left));}
+    if hit(x,y,(346.,194.,496.,240.)) {return Some(Action::SetMode(Mode::Right));}
     if hit(x,y,(16.,273.,244.,317.)) {return Some(Action::StartCalibration(Mode::Left));}
     if hit(x,y,(268.,273.,496.,317.)) {return Some(Action::StartCalibration(Mode::Right));}
     if hit(x,y,(16.,339.,100.,379.)) {return Some(Action::SizeDelta(-0.005));}
@@ -98,16 +101,18 @@ impl Dashboard {
     fn redraw(&mut self,overlays:&mut openvr::Overlay,state:State)->Result<(),String> {
         self.image.clear([16,23,31,255]);
         self.image.text(24,15,"vrperf",3,WHITE);
-        self.image.text(24,62,"Performance overlay",2,DIM);
-        for (mode,x,label) in [(Mode::Head,16,"HEAD"),(Mode::Left,181,"LEFT"),(Mode::Right,346,"RIGHT")] {
-            self.image.rect(x,101,149,47,if state.mode==mode {ACTIVE} else {INACTIVE});
-            self.image.text(x+22,116,label,2,WHITE);
+        self.image.text(24,58,"PCVR Performance Overlay",2,DIM);
+        // Large visibility buttons at the top. Highlight the selected state.
+        for (enabled,x,label) in [(true,16,"ON"),(false,268,"OFF")] {
+            let color=if state.enabled==enabled { ACTIVE } else { INACTIVE };
+            self.image.rect(x,98,228,52,color);
+            self.image.text(x+(228-(label.len() as i32*24))/2,112,label,3,WHITE);
         }
-        self.image.text(16,160,"VISIBILITY",2,DIM);
-        self.image.rect(16,181,208,61,if state.enabled {ACTIVE} else {[78,61,65,255]});
-        self.image.text(if state.enabled {93} else {83},199,
-            if state.enabled {"ON"} else {"OFF"},3,WHITE);
-        self.image.text(272,184,"HEAD / WATCH L/R",1,DIM);
+        self.image.text(16,166,"POSITION",2,DIM);
+        for (mode,x,label) in [(Mode::Head,16,"HEAD"),(Mode::Left,181,"LEFT"),(Mode::Right,346,"RIGHT")] {
+            self.image.rect(x,194,149,46,if state.mode==mode {ACTIVE} else {INACTIVE});
+            self.image.text(x+(149-(label.len() as i32*16))/2,208,label,2,WHITE);
+        }
         self.image.text(16,251,"CALIBRATE WATCH",2,DIM);
         for (mode,x,label) in [(Mode::Left,16,"CAL LEFT"),(Mode::Right,268,"CAL RIGHT")] {
             self.image.rect(x,273,228,44,if state.calibrating==Some(mode) {ACTIVE} else {INACTIVE});
@@ -144,12 +149,12 @@ impl Dashboard {
             _ => [
                 "1. SELECT CAL LEFT OR RIGHT",
                 "2. CLOSE STEAMVR DASHBOARD",
-                "3. GRIP OTHER HAND; MOVE",
-                "4. REOPEN DASHBOARD; SAVE",
+                "3. GRIP OTHER HAND; MOVE OVERLAY",
+                "4. REOPEN DASH; SAVE/CANCEL",
             ],
         };
-        for (line,y) in instructions.into_iter().zip([445,469,493,517]) {
-            self.image.text(16,y,line,2,if state.calibrating.is_some() {WHITE} else {DIM});
+        for (line,y) in instructions.into_iter().zip([446,471,496,521]) {
+            self.image.instruction_text(16,y,line,if state.calibrating.is_some() {WHITE} else {DIM});
         }
         self.image.rect(16,548,480,1,[45,59,75,255]);
         let res=|x:Option<u16>|x.map_or_else(||"--".to_string(),|v|format!("{v}%"));
@@ -207,6 +212,22 @@ impl Image {
     fn rect(&mut self, x: i32, y: i32, width: i32, height: i32, color: [u8; 4]) {
         for py in y..y + height { for px in x..x + width { self.pixel(px, py, color); } }
     }
+    // Keep the normal 16 px text height, but use 14 px wide glyph cells for
+    // calibration instructions. The full 8-column bitmap is preserved.
+    fn instruction_text(&mut self, x: i32, y: i32, text: &str, color: [u8; 4]) {
+        for (idx, ch) in text.chars().enumerate() {
+            let Some(bitmap) = BASIC_FONTS.get(ch) else { continue; };
+            let ox = x + idx as i32 * INSTRUCTION_ADVANCE;
+            for (row, bits) in bitmap.iter().enumerate() {
+                for col in 0..8 {
+                    if (*bits & (1_u8 << col)) != 0 {
+                        // Compress 8 columns into 14 px while retaining all bits.
+                        self.rect(ox + col * 12 / 7, y + row as i32 * 2, 2, 2, color);
+                    }
+                }
+            }
+        }
+    }
     fn text(&mut self, x: i32, y: i32, text: &str, scale: i32, color: [u8; 4]) {
         for (idx, ch) in text.chars().enumerate() {
             let Some(bitmap) = BASIC_FONTS.get(ch) else { continue; };
@@ -228,10 +249,14 @@ mod tests {
     use super::*;
     #[test]
     fn dashboard_has_only_head_and_watch_controls() {
-        assert_eq!(action_at(80.,120.),Some(Action::SetMode(Mode::Head)));
-        assert_eq!(action_at(250.,120.),Some(Action::SetMode(Mode::Left)));
-        assert_eq!(action_at(400.,120.),Some(Action::SetMode(Mode::Right)));
-        assert_eq!(action_at(80.,200.),Some(Action::Toggle));
+        assert_eq!(action_at(80.,120.),Some(Action::SetVisible(true)));
+        assert_eq!(action_at(400.,120.),Some(Action::SetVisible(false)));
+        assert_eq!(action_at(80.,210.),Some(Action::SetMode(Mode::Head)));
+        assert_eq!(action_at(250.,210.),Some(Action::SetMode(Mode::Left)));
+        assert_eq!(action_at(400.,210.),Some(Action::SetMode(Mode::Right)));
+        // The label and the empty gap between visibility and position do nothing.
+        assert_eq!(action_at(250.,120.),None);
+        assert_eq!(action_at(80.,173.),None);
         assert_eq!(action_at(80.,295.),Some(Action::StartCalibration(Mode::Left)));
         assert_eq!(action_at(400.,295.),Some(Action::StartCalibration(Mode::Right)));
         assert_eq!(action_at(80.,420.),Some(Action::SaveCalibration));
@@ -239,6 +264,15 @@ mod tests {
         assert_eq!(action_at(50.,350.),Some(Action::SizeDelta(-0.005)));
         assert_eq!(action_at(450.,350.),Some(Action::SizeDelta(0.005)));
         assert_eq!(action_at(f32::NAN,120.),None);
+        assert_eq!(action_at(-1.,120.),None);
     }
     #[test] fn dashboard_dimensions() {assert_eq!(Image::new(W,H).pixels.len(),W*H*4);}
+    #[test]
+    fn dashboard_labels_fit_width_and_instructions_fit_height() {
+        assert!(24+"PCVR Performance Overlay".len()*16 <= W);
+        assert!(16+"POSITION".len()*16 <= W);
+        assert!(16+"3. GRIP OTHER HAND; MOVE OVERLAY".len()*INSTRUCTION_ADVANCE as usize <= W-16);
+        assert!(16+"4. REOPEN DASH; SAVE/CANCEL".len()*INSTRUCTION_ADVANCE as usize <= W-16);
+        assert!(521+16 < 548); // Last instruction is above resolution divider.
+    }
 }

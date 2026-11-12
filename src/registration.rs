@@ -20,7 +20,7 @@ fn install_dir() -> Result<PathBuf, String> {
 // also install them for direct development builds (which may run without --install).
 pub fn ensure_input_assets() -> Result<PathBuf, String> {
     let dir = install_dir()?;
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&dir).map_err(|e|format!("Create SteamVR input directory {}: {e}",dir.display()))?;
     for (name, contents) in [
         ("actions.json", include_str!("../assets/steamvr/actions.json")),
         ("bindings_frame_controller.json",
@@ -41,8 +41,8 @@ pub fn ensure_input_assets() -> Result<PathBuf, String> {
         let path = dir.join(name);
         if fs::read_to_string(&path).ok().as_deref() != Some(contents) {
             let tmp = dir.join(format!("{name}.tmp"));
-            fs::write(&tmp, contents).map_err(|e| e.to_string())?;
-            fs::rename(tmp, &path).map_err(|e| e.to_string())?;
+            fs::write(&tmp, contents).map_err(|e|format!("Write action file {}: {e}",tmp.display()))?;
+            fs::rename(&tmp, &path).map_err(|e|format!("Install action file {}: {e}",path.display()))?;
         }
     }
     Ok(dir.join("actions.json"))
@@ -112,7 +112,7 @@ impl Applications {
             .ok_or("AddApplicationManifest unavailable")?(path.as_ptr() as *mut _, false) };
         // Re-registering the same application key after upgrading is not fatal.
         if result != 0 && result != 100 {
-            return Err(format!("SteamVR manifest registration failed ({result})"));
+            return Err(format!("SteamVR manifest registration failed for {} (code {result})",path.to_string_lossy()));
         }
         Ok(())
     }
@@ -129,7 +129,7 @@ impl Applications {
         // SAFETY: The string lives for the duration of the FFI call.
         let result = unsafe { (*self.0).RemoveApplicationManifest
             .ok_or("RemoveApplicationManifest unavailable")?(path.as_ptr() as *mut _) };
-        if result != 0 { return Err(format!("SteamVR manifest removal failed ({result})")); }
+        if result != 0 { return Err(format!("SteamVR manifest removal failed for {} (code {result})",path.to_string_lossy())); }
         Ok(())
     }
 }
@@ -144,21 +144,27 @@ pub fn install() -> Result<(), Box<dyn Error>> {
     let binary = binary_path()?;
     let bin_dir = binary.parent().ok_or("Invalid executable path")?;
     ensure_input_assets()?;
-    fs::create_dir_all(bin_dir)?;
+    fs::create_dir_all(bin_dir)
+        .map_err(|e|format!("Create binary directory {}: {e}",bin_dir.display()))?;
 
     // Use a temporary file and rename to avoid leaving a partial executable.
     let executable = env::current_exe()?;
     if executable != binary {
         let staging = bin_dir.join("vrperf.tmp");
-        fs::copy(&executable, &staging)?;
-        fs::set_permissions(&staging, fs::Permissions::from_mode(0o755))?;
-        fs::rename(&staging, &binary)?;
+        fs::copy(&executable, &staging)
+            .map_err(|e|format!("Copy executable {} to {}: {e}",executable.display(),staging.display()))?;
+        fs::set_permissions(&staging, fs::Permissions::from_mode(0o755))
+            .map_err(|e|format!("Set executable permissions on {}: {e}",staging.display()))?;
+        fs::rename(&staging, &binary)
+            .map_err(|e|format!("Install executable {}: {e}",binary.display()))?;
     }
 
     let path = dir.join("vrperf.vrmanifest");
     let manifest_staging = dir.join("vrperf.vrmanifest.tmp");
-    fs::write(&manifest_staging, manifest(&binary))?;
-    fs::rename(&manifest_staging, &path)?;
+    fs::write(&manifest_staging, manifest(&binary))
+        .map_err(|e|format!("Write SteamVR manifest {}: {e}",manifest_staging.display()))?;
+    fs::rename(&manifest_staging, &path)
+        .map_err(|e|format!("Install SteamVR manifest {}: {e}",path.display()))?;
 
     // Re-add the same manifest path so SteamVR reloads its updated binary path.
     apps.add(&path)?;
@@ -189,12 +195,20 @@ pub fn uninstall() -> Result<(), Box<dyn Error>> {
     apps.autolaunch(false)?;
     apps.remove(&path)?;
     drop(context);
-    if path.exists() { fs::remove_file(&path)?; }
+    if path.exists() {
+        fs::remove_file(&path).map_err(|e|format!("Remove SteamVR manifest {}: {e}",path.display()))?;
+    }
     let executable = binary_path()?;
-    if executable.exists() || executable.is_symlink() { fs::remove_file(&executable)?; }
+    if executable.exists() || executable.is_symlink() {
+        fs::remove_file(&executable)
+            .map_err(|e|format!("Remove installed executable {}: {e}",executable.display()))?;
+    }
     // Also clean up an old v1.6 installation if present.
     let old_binary = dir.join("vrperf");
-    if old_binary.exists() { fs::remove_file(old_binary)?; }
+    if old_binary.exists() {
+        fs::remove_file(&old_binary)
+            .map_err(|e|format!("Remove old executable {}: {e}",old_binary.display()))?;
+    }
     println!("Removed SteamVR autostart registration and installed vrperf binary.");
     Ok(())
 }

@@ -124,9 +124,9 @@ fn run() -> Result<(), Box<dyn Error>> {
             .unwrap_or([None;2]);
         if let Some(ref mut dashboard) = dashboard {
             match dashboard.poll() {
-                Ok(Some(DashboardAction::Toggle)) => {
-                    if positioner.calibrating().is_none() {
-                        enabled = !enabled;
+                Ok(Some(DashboardAction::SetVisible(visible))) => {
+                    if positioner.calibrating().is_none() && enabled != visible {
+                        enabled = visible;
                         if let Err(error) = registration::write_visible(enabled) {
                             eprintln!("vrperf: visibility could not be saved: {error}");
                         }

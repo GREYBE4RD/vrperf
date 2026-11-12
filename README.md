@@ -12,14 +12,16 @@ Choose a panel fixed in front of you (**HEAD**), or a watch attached to your **L
 
 1. Start SteamVR. If vrperf is installed with automatic startup (default), it should start automatically when SteamVR is started.
 2. Open the **SteamVR dashboard** and select the **vrperf** tab (will show as a '?' icon but display vrperf when selected or hovered).
-3. Select **HEAD** (default), **LEFT**, or **RIGHT** to choose where the performance panel appears.
-4. Select **ON** or **OFF** to show or hide it. vrperf remembers your selection between sessions.
+3. Under **POSITION**, select **HEAD**, **LEFT**, or **RIGHT**.
+4. Use the separate **ON** and **OFF** buttons at the top to show or hide the panel. vrperf remembers your selection.
 
-![vrperf dashboard controls](screenshots/vrperf.on.off.jpg)
+![vrperf dashboard controls (earlier layout)](screenshots/vrperf.on.off.jpg)
+
+*The screenshot shows the earlier dashboard. Since v1.33, ON and OFF are at the top, above the position controls.*
 
 **HEAD** stays fixed in your view. A calibrated **LEFT** or **RIGHT** watch appears when you turn it towards your eyes and look at it. It hides as soon as you turn away, without a fade or delay. Only one display mode is selected at a time.
 
-**On first LEFT/RIGHT use**, a smaller performance overlay appears above the selected controller and stays visible so you can find it easily. Follow the steps below to place it where you want. Your saved position is kept when you update vrperf.
+**On first LEFT/RIGHT use**, the smaller watch uses the original v1.11 controller-relative position and stays visible so you can find it easily. Follow the steps below to place it where you want. Saved positions remain unchanged when you update vrperf.
 
 ## Calibrating a watch
 
@@ -35,9 +37,9 @@ Calibration works both while loaded into a game or not. You do not need to exit 
 6. Reopen the SteamVR dashboard and use the **-** and **+** to change watch size in 0.5 cm steps if needed.
 7. Select **SAVE** to keep the position, angle and size. Select **CANCEL** to restore the previous calibration.
 
-Repeat for the other wrist if needed. Releasing the grip **does not save** your changes; you must select re-open the dashboard and select **SAVE**. Selecting another display mode before saving cancels the adjustment.
+Repeat for the other wrist if needed. Releasing the grip **does not save** your changes; reopen the dashboard and select **SAVE**. Selecting another display mode before saving cancels the adjustment. There is no keyboard shortcut for CANCEL; use the dashboard button. If SteamVR exits before SAVE, the last saved position returns when you restart.
 
-Before its first saved calibration, a watch starts as a flat panel about **7 cm above its controller** and remains visible while tracked. After you save, normal angle-based visibility takes effect. Existing saved calibrations do not move when you upgrade.
+Before its first saved calibration, a watch uses the unrotated v1.11 controller offset (**12 cm along controller Y and -13 cm along controller Z**). It remains visible while tracked. After saving, normal angle-based visibility takes effect. Saved calibrations persist after reboot and are not changed by an update.
 
 ## Installing vrperf
 

@@ -4,6 +4,8 @@
 //! library is needed. The `openvr` safe wrapper only exposes SetOverlayRaw,
 //! so this module calls SetOverlayTexture through the same SDK's C fn table.
 //! Errors are returned to main; a raw-upload fallback remains available.
+//! Source frames are tightly packed RGBA8 (4 bytes per pixel, no row padding).
+//! GL texture dimensions use signed i32; validate usize inputs before casting.
 
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
@@ -116,6 +118,11 @@ pub struct GlUploader {
 
 impl GlUploader {
     pub fn new(width: usize, height: usize) -> Result<Self, String> {
+        if width == 0 || height == 0 || width > i32::MAX as usize
+            || height > i32::MAX as usize
+            || width.checked_mul(height).and_then(|pixels| pixels.checked_mul(4)).is_none() {
+            return Err("OpenGL texture dimensions are invalid or overflow".into());
+        }
         // SAFETY: The EGL context is owned by this struct and used on one thread only.
         unsafe {
             let mut display = eglGetPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA, null_mut(), null());

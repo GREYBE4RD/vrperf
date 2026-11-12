@@ -13,13 +13,13 @@ pub struct WatchMount {
 
 impl Default for WatchMount {
     fn default() -> Self {
-        // Uncalibrated: flat panel 7 cm above the tracked controller, as in
-        // the earlier Above wrist placement. A saved calibration overrides it.
-        // In the tested controller coordinate system, Above is negative Z.
+        // Restore the unrotated v1.11 controller-relative placement. This puts
+        // an unsaved watch above and forward of the controller for first-use
+        // calibration. Existing saved watch mounts still override this default.
         Self { transform: [
             [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, -0.07],
+            [0.0, 1.0, 0.0, 0.12],
+            [0.0, 0.0, 1.0, -0.13],
         ], width_m: DEFAULT_WATCH_WIDTH }
     }
 }
@@ -115,13 +115,13 @@ mod tests {
         assert!(!valid(&invalid));
     }
     #[test]
-    fn uncalibrated_watch_starts_flat_above_controller() {
+    fn uncalibrated_watch_restores_v1_11_controller_offset() {
         let default = WatchMount::default();
         assert!(valid(&default));
         assert_eq!(default.transform, [
             [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, -0.07],
+            [0.0, 1.0, 0.0, 0.12],
+            [0.0, 0.0, 1.0, -0.13],
         ]);
     }
     #[test]
