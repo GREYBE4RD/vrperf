@@ -15,6 +15,8 @@ type EnginePropsFn = unsafe extern "C" fn(Handle, *mut EngineProps) -> ResultCod
 type EngineActivity = unsafe extern "C" fn(Handle, *mut EngineStats) -> ResultCode;
 type MemoryPropsFn = unsafe extern "C" fn(Handle, *mut MemoryProps) -> ResultCode;
 type MemoryStateFn = unsafe extern "C" fn(Handle, *mut MemoryState) -> ResultCode;
+type TempPropsFn = unsafe extern "C" fn(Handle, *mut TempProps) -> ResultCode;
+type TempStateFn = unsafe extern "C" fn(Handle, *mut f64) -> ResultCode;
 
 // Layout and constant values follow the Level Zero Sysman C headers.
 #[repr(C)]
@@ -48,7 +50,22 @@ struct MemoryState {
     free: u64,
     size: u64,
 }
+#[repr(C)]
+struct TempProps {
+    stype: u32,
+    p_next: *mut c_void,
+    sensor_type: u32,
+    on_subdevice: u32,
+    subdevice_id: u32,
+    max_temperature: f64,
+    is_critical_supported: u32,
+    is_threshold1_supported: u32,
+    is_threshold2_supported: u32,
+}
 
+const TEMP_PROPERTIES: u32 = 0x14;
+const TEMP_GPU: u32 = 1;
+const TEMP_GLOBAL: u32 = 0;
 const ENGINE_PROPERTIES: u32 = 0x5;
 const MEMORY_PROPERTIES: u32 = 0xb;
 const MEMORY_STATE: u32 = 0x1e;
@@ -63,6 +80,8 @@ pub(super) struct IntelSysman {
     engine_activity: EngineActivity,
     memories: Vec<Handle>,
     memory_state: MemoryStateFn,
+    temperature: Option<Handle>,
+    temperature_state: Option<TempStateFn>,
 }
 
 impl IntelSysman {
@@ -79,6 +98,9 @@ impl IntelSysman {
             let enum_memories: EnumComponents = library.symbol(c"zesDeviceEnumMemoryModules")?;
             let memory_props: MemoryPropsFn = library.symbol(c"zesMemoryGetProperties")?;
             let memory_state: MemoryStateFn = library.symbol(c"zesMemoryGetState")?;
+            let enum_temperatures: Option<EnumComponents> = library.symbol(c"zesDeviceEnumTemperatureSensors");
+            let temperature_props: Option<TempPropsFn> = library.symbol(c"zesTemperatureGetProperties");
+            let temperature_state: Option<TempStateFn> = library.symbol(c"zesTemperatureGetState");
 
             if init(0) != 0 { return None; }
             let mut driver_count = 0;
@@ -147,9 +169,42 @@ impl IntelSysman {
                     }
                 }
             }
+            // Prefer the GPU sensor, otherwise the global device sensor.
+            // Sysman temperature APIs are optional on some Intel drivers.
+            let mut temperature = None;
+            if let (Some(enumerate), Some(properties), Some(_)) =
+                (enum_temperatures, temperature_props, temperature_state) {
+                let mut count = 0;
+                if enumerate(selected, &mut count, null_mut()) == 0 && (1..=128).contains(&count) {
+                    let mut handles = vec![null_mut(); count as usize];
+                    if enumerate(selected, &mut count, handles.as_mut_ptr()) == 0 {
+                        let mut best = 0;
+                        for handle in handles.into_iter().filter(|h| !h.is_null()) {
+                            let mut props = TempProps {
+                                stype: TEMP_PROPERTIES, p_next: null_mut(), sensor_type: 0,
+                                on_subdevice: 0, subdevice_id: 0, max_temperature: 0.0,
+                                is_critical_supported: 0, is_threshold1_supported: 0,
+                                is_threshold2_supported: 0,
+                            };
+                            if properties(handle, &mut props) != 0 { continue; }
+                            let priority = match props.sensor_type {
+                                TEMP_GPU => 2, TEMP_GLOBAL => 1, _ => 0,
+                            };
+                            if priority > best { best = priority; temperature = Some(handle); }
+                        }
+                    }
+                }
+            }
             Some(Self { _library: library, engine, last_engine: None,
-                engine_activity, memories, memory_state })
+                engine_activity, memories, memory_state, temperature, temperature_state })
         }
+    }
+
+    pub(super) fn temperature(&self) -> Option<f32> {
+        let (Some(handle), Some(get)) = (self.temperature, self.temperature_state) else { return None; };
+        let mut value = 0.0_f64;
+        let ok = unsafe { get(handle, &mut value) } == 0;
+        (ok && value.is_finite() && (0.0..=200.0).contains(&value)).then_some(value as f32)
     }
 
     pub(super) fn sample(&mut self) -> (Option<f32>, Option<f32>, Option<f32>) {
@@ -207,5 +262,6 @@ mod tests {
         assert_eq!(std::mem::size_of::<EngineProps>(), 32);
         assert_eq!(std::mem::size_of::<MemoryProps>(), 48);
         assert_eq!(std::mem::size_of::<MemoryState>(), 40);
+        assert_eq!(std::mem::size_of::<TempProps>(), 56);
     }
 }

@@ -10,6 +10,7 @@ type Shutdown = unsafe extern "C" fn() -> Return;
 type ByPci = unsafe extern "C" fn(*const libc::c_char, *mut Device) -> Return;
 type Util = unsafe extern "C" fn(Device, *mut Utilization) -> Return;
 type Memory = unsafe extern "C" fn(Device, *mut MemoryInfo) -> Return;
+type Temperature = unsafe extern "C" fn(Device, u32, *mut u32) -> Return;
 
 #[repr(C)]
 #[derive(Default)]
@@ -25,6 +26,7 @@ pub(super) struct Nvml {
     shutdown: Shutdown,
     utilization: Util,
     memory: Memory,
+    temperature: Option<Temperature>,
 }
 
 impl Nvml {
@@ -37,6 +39,9 @@ impl Nvml {
             let by_pci: ByPci = library.symbol(c"nvmlDeviceGetHandleByPciBusId_v2")?;
             let utilization: Util = library.symbol(c"nvmlDeviceGetUtilizationRates")?;
             let memory: Memory = library.symbol(c"nvmlDeviceGetMemoryInfo")?;
+            // Older NVML GPU temperature API. Optional: monitoring must still
+            // work on devices/drivers which do not expose this entry point.
+            let temperature: Option<Temperature> = library.symbol(c"nvmlDeviceGetTemperature");
             if init() != 0 { return None; }
             let Some(address) = CString::new(pci_address).ok() else {
                 let _ = shutdown();
@@ -47,8 +52,16 @@ impl Nvml {
                 let _ = shutdown();
                 return None;
             }
-            Some(Self { _library: library, device, shutdown, utilization, memory })
+            Some(Self { _library: library, device, shutdown, utilization, memory, temperature })
         }
+    }
+
+    pub(super) fn temperature(&self) -> Option<f32> {
+        let get = self.temperature?;
+        let mut degrees = 0_u32;
+        // NVML_TEMPERATURE_GPU = 0, in whole degrees Celsius.
+        let ok = unsafe { get(self.device, 0, &mut degrees) } == 0;
+        (ok && degrees <= 200).then_some(degrees as f32)
     }
 
     pub(super) fn sample(&self) -> (Option<f32>, Option<f32>, Option<f32>) {

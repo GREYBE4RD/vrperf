@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 pub struct HardwareStats {
     pub cpu_load: Option<f32>,
     pub gpu_load: Option<f32>,
+    pub cpu_temp_c: Option<f32>,
+    pub gpu_temp_c: Option<f32>,
     pub vram_used_gib: Option<f32>,
     pub vram_total_gib: Option<f32>,
     pub ram_used_gib: Option<f32>,
@@ -18,14 +20,16 @@ pub struct HardwareStats {
 }
 
 enum GpuMonitor {
-    Amd(PathBuf),
-    Nvidia(nvml::Nvml),
-    Intel(level_zero::IntelSysman),
+    Amd { device: PathBuf, sensor: Option<PathBuf> },
+    Nvidia { backend: nvml::Nvml, sensor: Option<PathBuf> },
+    Intel { backend: level_zero::IntelSysman, sensor: Option<PathBuf> },
+    SysfsTemperature(PathBuf),
     Unavailable,
 }
 
 pub struct HardwareMonitor {
     gpu: GpuMonitor,
+    cpu_sensor: Option<PathBuf>,
     previous_cpu: Option<(u64, u64)>,
     pub stats: HardwareStats,
 }
@@ -34,6 +38,7 @@ impl HardwareMonitor {
     pub fn new() -> Self {
         Self {
             gpu: detect_gpu(),
+            cpu_sensor: find_cpu_temp_sensor(Path::new("/sys/class/hwmon")),
             previous_cpu: None,
             stats: HardwareStats::default(),
         }
@@ -54,18 +59,28 @@ impl HardwareMonitor {
             self.previous_cpu = Some((total, idle));
         }
 
-        // Clear unavailable/stale samples instead of retaining an old reading.
-        let (gpu, used, total) = match &mut self.gpu {
-            GpuMonitor::Amd(device) => {
+        // Never retain a stale temperature when a sensor disappears or fails.
+        self.stats.cpu_temp_c = self.cpu_sensor.as_deref().and_then(read_temperature);
+        let (gpu, used, total, temperature) = match &mut self.gpu {
+            GpuMonitor::Amd { device, sensor } => {
                 const GIB: f32 = 1024.0 * 1024.0 * 1024.0;
                 (read_number(device.join("gpu_busy_percent")).filter(|n| *n <= 100).map(|n| n as f32),
                  read_number(device.join("mem_info_vram_used")).map(|n| n as f32 / GIB),
-                 read_number(device.join("mem_info_vram_total")).map(|n| n as f32 / GIB))
+                 read_number(device.join("mem_info_vram_total")).map(|n| n as f32 / GIB),
+                 sensor.as_deref().and_then(read_temperature))
             }
-            GpuMonitor::Nvidia(backend) => backend.sample(),
-            GpuMonitor::Intel(backend) => backend.sample(),
-            GpuMonitor::Unavailable => (None, None, None),
+            GpuMonitor::Nvidia { backend, sensor } => {
+                let (gpu, used, total) = backend.sample();
+                (gpu, used, total, backend.temperature().or_else(|| sensor.as_deref().and_then(read_temperature)))
+            }
+            GpuMonitor::Intel { backend, sensor } => {
+                let (gpu, used, total) = backend.sample();
+                (gpu, used, total, sensor.as_deref().and_then(read_temperature).or_else(|| backend.temperature()))
+            }
+            GpuMonitor::SysfsTemperature(sensor) => (None, None, None, read_temperature(sensor)),
+            GpuMonitor::Unavailable => (None, None, None, None),
         };
+        self.stats.gpu_temp_c = temperature;
         self.stats.gpu_load = gpu;
         self.stats.vram_used_gib = used;
         self.stats.vram_total_gib = total;
@@ -106,23 +121,96 @@ fn detect_gpu() -> GpuMonitor {
     candidates.sort_by(|a, b| (b.0, b.1).cmp(&(a.0, a.1)));
     for (_, _, vendor, device) in candidates {
         match vendor {
-            Vendor::Amd if device.join("gpu_busy_percent").exists() => return GpuMonitor::Amd(device),
+            Vendor::Amd if device.join("gpu_busy_percent").exists() => {
+                let sensor = find_gpu_temp_sensor(&device);
+                return GpuMonitor::Amd { device, sensor };
+            }
             Vendor::Nvidia => {
                 let pci = fs::canonicalize(&device).ok()
                     .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()));
+                let sensor = find_gpu_temp_sensor(&device);
                 if let Some(monitor) = pci.as_deref().and_then(nvml::Nvml::new) {
-                    return GpuMonitor::Nvidia(monitor);
+                    return GpuMonitor::Nvidia { backend: monitor, sensor };
                 }
+                if let Some(sensor) = sensor { return GpuMonitor::SysfsTemperature(sensor); }
             }
             Vendor::Intel => {
+                let sensor = find_gpu_temp_sensor(&device);
                 if let Some(monitor) = level_zero::IntelSysman::new() {
-                    return GpuMonitor::Intel(monitor);
+                    return GpuMonitor::Intel { backend: monitor, sensor };
                 }
+                if let Some(sensor) = sensor { return GpuMonitor::SysfsTemperature(sensor); }
             }
             _ => (),
         }
     }
     GpuMonitor::Unavailable
+}
+
+// Select CPU package/die sensors, not arbitrary motherboard or chipset probes.
+// k10temp Tdie is a physical die reading when available; Tctl can be offset.
+fn find_cpu_temp_sensor(root: &Path) -> Option<PathBuf> {
+    let mut directories: Vec<_> = fs::read_dir(root).ok()?.flatten().map(|e| e.path()).collect();
+    directories.sort();
+    let mut candidates = Vec::new();
+    for dir in directories {
+        let Ok(name) = fs::read_to_string(dir.join("name")) else { continue; };
+        let driver = name.trim();
+        if !matches!(driver, "k10temp" | "zenpower" | "coretemp" | "cpu_thermal") { continue; }
+        for index in 1..=16 {
+            let input = dir.join(format!("temp{index}_input"));
+            if !input.exists() { continue; }
+            let label = fs::read_to_string(dir.join(format!("temp{index}_label")))
+                .unwrap_or_default().trim().to_ascii_lowercase();
+            let priority = cpu_sensor_priority(driver, &label, index);
+            if priority > 0 { candidates.push((priority, input)); }
+        }
+    }
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    candidates.into_iter().map(|(_, path)| path).next()
+}
+
+fn cpu_sensor_priority(driver: &str, label: &str, index: usize) -> u8 {
+    match driver {
+        "k10temp" | "zenpower" => match label {
+            "tdie" => 100, "tctl" => 80, _ if index == 1 => 60, _ => 0,
+        },
+        "coretemp" => if label.starts_with("package id ") { 100 }
+            else if index == 1 { 60 } else { 0 },
+        "cpu_thermal" => if index == 1 { 40 } else { 0 },
+        _ => 0,
+    }
+}
+
+// Only read a temperature associated with the selected GPU PCI device.
+// AMD commonly reports "edge" at temp1_input. Avoid junction/hotspot sensors
+// because their temperatures are not directly comparable with GPU core values.
+fn find_gpu_temp_sensor(device: &Path) -> Option<PathBuf> {
+    let mut dirs: Vec<_> = fs::read_dir(device.join("hwmon")).ok()?
+        .flatten().map(|e| e.path()).collect();
+    dirs.sort();
+    let mut candidates = Vec::new();
+    for dir in dirs {
+        for index in 1..=16 {
+            let path = dir.join(format!("temp{index}_input"));
+            if !path.exists() { continue; }
+            let label = fs::read_to_string(dir.join(format!("temp{index}_label")))
+                .unwrap_or_default().trim().to_ascii_lowercase();
+            let priority = if label == "edge" || label == "gpu" { 100 }
+                else if index == 1 && !label.contains("hotspot") && !label.contains("junction")
+                    && !label.contains("memory") && !label.contains("mem") { 60 }
+                else { 0 };
+            if priority > 0 { candidates.push((priority, path)); }
+        }
+    }
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    candidates.into_iter().map(|(_, path)| path).next()
+}
+
+// Linux hwmon reports millidegrees Celsius. Reject impossible/stale values.
+fn read_temperature(path: &Path) -> Option<f32> {
+    let milli: i64 = fs::read_to_string(path).ok()?.trim().parse().ok()?;
+    (0..=200_000).contains(&milli).then_some(milli as f32 / 1000.0)
 }
 
 fn system_ram() -> (Option<f32>, Option<f32>) {
@@ -183,6 +271,12 @@ mod tests {
         assert_eq!(used, Some(16.0));
     }
 
+    #[test]
+    fn temperature_sensor_selection_has_explicit_priorities() {
+        assert!(cpu_sensor_priority("k10temp", "tdie", 2) > cpu_sensor_priority("k10temp", "tctl", 1));
+        assert_eq!(cpu_sensor_priority("coretemp", "core 0", 2), 0);
+        assert_eq!(cpu_sensor_priority("acpitz", "temp", 1), 0);
+    }
     #[test]
     fn sysfs_filters_only_drm_cards() {
         assert!(drm_card("card0"));

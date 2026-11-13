@@ -1,3 +1,14 @@
+# vrperf v1.35.0 (development temperature monitoring, 2026-11-12)
+
+- Show CPU and GPU temperatures in HEAD and watch modes. Keep the watch at 550 x 160 pixels; condense only its bottom text and preserve evenly spaced fields.
+- AMD CPU hwmon Tdie/Tctl, Intel CPU coretemp, AMD/Intel GPU hwmon, NVIDIA NVML, and optional Intel Level Zero Sysman GPU temperatures; show --° if absent.
+- Temperature colour is orange at 80°C and red at 90°C, independent of CPU/GPU utilisation warnings.
+- Cap displayed temperatures in both modes at 99° and watch battery/CPU/GPU percentages at 99% to prevent three-digit fields. Underlying warning values are not capped. HEAD utilisation remains uncapped.
+- Document sensor limitations, GPU selection caveats and display caps in the README. Add tests for formatting, thresholds and worst-case watch row widths.
+- Needs cargo tests, release build and SteamVR validation before publishing.
+
+---
+
 # vrperf v1.34.0 (2026-11-12)
 
 - Shorten the dashboard position heading to "POSITION".

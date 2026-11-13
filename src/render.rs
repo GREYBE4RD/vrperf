@@ -16,6 +16,8 @@ const WRIST_TOP_Y: i32 = 16;
 const WRIST_GRAPH_Y: i32 = 44;
 const WRIST_GRAPH_H: i32 = 72;
 const WRIST_BOTTOM_Y: i32 = 130;
+// BASIC_FONTS is ASCII-only. Supply a small upper-right degree glyph for °C.
+const DEGREE_GLYPH: [u8; 8] = [0b0000_0110, 0b0000_1001, 0b0000_1001, 0b0000_0110, 0, 0, 0, 0];
 
 // Reserve a fixed left column for readable, stable 2x frame-time values.
 const GRAPH_X: i32 = 194;
@@ -101,13 +103,17 @@ impl Renderer {
         // Keep the v1.11 head layout, including its dimensions, text rows,
         // fixed labels and bottom information bar. The shared CPU/GPU graph
         // fills the right-hand area between the two information separators.
-        self.label(12, 48, "CPU", 2, CPU);
-        self.label(70, 48, &frame_time_text(latest.map(|f| f.cpu_ms)), 2,
+        self.label(12, 42, "CPU", 2, CPU);
+        self.label(70, 42, &frame_time_text(latest.map(|f| f.cpu_ms)), 2,
             frame_time_colour(latest.map(|f| f.cpu_ms), budget, CPU, CPU_OVER_BUDGET));
+        self.label_compact(12, 62, &format!("TEMP {}", temperature_text(hw.cpu_temp_c)),
+            temperature_colour(hw.cpu_temp_c));
         self.rect(10, 79, GRAPH_X - 22, 1, [45, 59, 75, 255]);
-        self.label(12, 94, "GPU", 2, GPU);
-        self.label(70, 94, &frame_time_text(latest.map(|f| f.gpu_ms)), 2,
+        self.label(12, 87, "GPU", 2, GPU);
+        self.label(70, 87, &frame_time_text(latest.map(|f| f.gpu_ms)), 2,
             frame_time_colour(latest.map(|f| f.gpu_ms), budget, GPU, GPU_OVER_BUDGET));
+        self.label_compact(12, 110, &format!("TEMP {}", temperature_text(hw.gpu_temp_c)),
+            temperature_colour(hw.gpu_temp_c));
         self.graph(&monitor.samples, monitor.is_recent(), GRAPH_X, HEAD_GRAPH_Y, GRAPH_W, HEAD_GRAPH_H, budget);
         self.rect(10, 129, WIDTH as i32 - 20, 1, [59, 76, 94, 255]);
 
@@ -155,18 +161,35 @@ impl Renderer {
         self.graph(&monitor.samples, monitor.is_recent(), 10, WRIST_GRAPH_Y,
             WRIST_WIDTH as i32 - 20, WRIST_GRAPH_H, budget);
         self.rect(10, 120, WRIST_WIDTH as i32 - 20, 1, [59, 76, 94, 255]);
+        // Bottom-only font is slightly narrower so both temperature values
+        // fit inside the original 550-pixel watch, even for large RAM/VRAM.
+        // Each reading is drawn in two parts, so the temperature warning colour
+        // is independent from the utilisation percentage warning colour.
+        let cpu_usage = format!("CPU {}", wrist_load_percent(hw.cpu_load));
+        let gpu_usage = format!("GPU {}", wrist_load_percent(hw.gpu_load));
+        let cpu_usage_len = cpu_usage.len() + 1;
+        let gpu_usage_len = gpu_usage.len() + 1;
         let bottom = [
-            (format!("BAT {}", percent(devices.hmd)), battery_colour(devices.hmd)),
-            (format!("CPU {}", load_percent(hw.cpu_load)), usage_colour(hw.cpu_load)),
+            (format!("BAT {}", wrist_battery_percent(devices.hmd)), battery_colour(devices.hmd), None),
+            (format!("{cpu_usage} {}", temperature_text(hw.cpu_temp_c)), usage_colour(hw.cpu_load),
+                Some((cpu_usage_len, temperature_colour(hw.cpu_temp_c)))),
             (format!("RAM {}", used_total_wrist(hw.ram_used_gib, hw.ram_total_gib)),
-                memory_colour(hw.ram_used_gib, hw.ram_total_gib)),
-            (format!("GPU {}", load_percent(hw.gpu_load)), usage_colour(hw.gpu_load)),
+                memory_colour(hw.ram_used_gib, hw.ram_total_gib), None),
+            (format!("{gpu_usage} {}", temperature_text(hw.gpu_temp_c)), usage_colour(hw.gpu_load),
+                Some((gpu_usage_len, temperature_colour(hw.gpu_temp_c)))),
             (format!("VRA {}", used_total_wrist(hw.vram_used_gib, hw.vram_total_gib)),
-                memory_colour(hw.vram_used_gib, hw.vram_total_gib)),
+                memory_colour(hw.vram_used_gib, hw.vram_total_gib), None),
         ];
-        let bottom_widths: [i32; 5] = std::array::from_fn(|i| wrist_text_width(&bottom[i].0));
-        for ((text, colour), x) in bottom.iter().zip(wrist_row_positions(bottom_widths)) {
-            self.label_wrist(x, WRIST_BOTTOM_Y, text, *colour);
+        let bottom_widths: [i32; 5] = std::array::from_fn(|i| wrist_bottom_text_width(&bottom[i].0));
+        for ((text, colour, temperature), x) in bottom.iter().zip(wrist_row_positions(bottom_widths)) {
+            if let Some((offset, hot_colour)) = temperature {
+                let (usage, degrees) = text.split_at(*offset);
+                self.label_wrist_bottom(x, WRIST_BOTTOM_Y, usage, *colour);
+                self.label_wrist_bottom(x + wrist_bottom_text_width(usage), WRIST_BOTTOM_Y,
+                    degrees, *hot_colour);
+            } else {
+                self.label_wrist_bottom(x, WRIST_BOTTOM_Y, text, *colour);
+            }
         }
     }
 
@@ -212,7 +235,7 @@ impl Renderer {
     fn label_compact(&mut self, x: i32, y: i32, text: &str, color: [u8; 4]) {
         let mut cursor = x;
         for ch in text.chars() {
-            if let Some(bitmap) = BASIC_FONTS.get(ch) {
+            if let Some(bitmap) = glyph_bitmap(ch) {
                 if let Some((first, last)) = glyph_columns(&bitmap) {
                     for (row, bits) in bitmap.iter().enumerate() {
                         for col in first..=last {
@@ -228,20 +251,27 @@ impl Renderer {
         }
     }
 
-    // Wrist-only font: preserve the 16px height, with 1.4 pixels per bitmap
-    // column horizontally. This keeps both rows within 550 pixels
-    // without changing the HEAD font.
+    // Preserve the 16px font height. Only the bottom line is condensed
+    // slightly more, to make room for the new temperature values.
     fn label_wrist(&mut self, x: i32, y: i32, text: &str, color: [u8; 4]) {
+        self.label_wrist_scaled(x, y, text, color, false);
+    }
+    fn label_wrist_bottom(&mut self, x: i32, y: i32, text: &str, color: [u8; 4]) {
+        self.label_wrist_scaled(x, y, text, color, true);
+    }
+    fn label_wrist_scaled(&mut self, x: i32, y: i32, text: &str,
+        color: [u8; 4], bottom: bool) {
         let mut cursor = x;
         for ch in text.chars() {
-            if let Some(bitmap) = BASIC_FONTS.get(ch) {
+            if let Some(bitmap) = glyph_bitmap(ch) {
                 if let Some((first, last)) = glyph_columns(&bitmap) {
                     for (row, bits) in bitmap.iter().enumerate() {
                         for col in first..=last {
                             if *bits & (1_u8 << col) != 0 {
                                 let local = col - first;
-                                let start_x = local * 7 / 5;
-                                let end_x = (local + 1) * 7 / 5;
+                                let (numerator, denominator) = if bottom { (5, 4) } else { (7, 5) };
+                                let start_x = local * numerator / denominator;
+                                let end_x = (local + 1) * numerator / denominator;
                                 self.rect(cursor + start_x, y + row as i32 * 2,
                                     end_x - start_x, 2, color);
                             }
@@ -249,7 +279,7 @@ impl Renderer {
                     }
                 }
             }
-            cursor += wrist_advance(ch);
+            cursor += if bottom { wrist_bottom_advance(ch) } else { wrist_advance(ch) };
         }
     }
 
@@ -329,11 +359,14 @@ fn glyph_columns(bitmap: &[u8; 8]) -> Option<(i32, i32)> {
     if ink == 0 { return None; }
     Some((ink.trailing_zeros() as i32, 7 - ink.leading_zeros() as i32))
 }
+fn glyph_bitmap(ch: char) -> Option<[u8; 8]> {
+    if ch == '°' { Some(DEGREE_GLYPH) } else { BASIC_FONTS.get(ch) }
+}
 fn compact_advance(ch: char) -> i32 {
     // Equal digit advances keep numbers and the trailing % symbol in place,
     // even though the individual bitmap glyphs have different widths.
     if ch.is_ascii_digit() || ch == '-' { return 14; }
-    match BASIC_FONTS.get(ch).and_then(|bitmap| glyph_columns(&bitmap)) {
+    match glyph_bitmap(ch).and_then(|bitmap| glyph_columns(&bitmap)) {
         Some((first, last)) => (last - first + 1) * 2 + 2,
         None => 8, // Spaces: keep a visible gap without using a full 16px cell.
     }
@@ -348,6 +381,11 @@ fn wrist_advance(ch: char) -> i32 { (compact_advance(ch) * 7 + 9) / 10 }
 fn wrist_text_width(text: &str) -> i32 {
     // Reserve the full advance, including the last glyph's ink.
     text.chars().map(wrist_advance).sum()
+}
+// Bottom line uses 63% of HEAD horizontal advance; top line retains 70%.
+fn wrist_bottom_advance(ch: char) -> i32 { (compact_advance(ch) * 63 + 99) / 100 }
+fn wrist_bottom_text_width(text: &str) -> i32 {
+    text.chars().map(wrist_bottom_advance).sum()
 }
 
 // Constant widths: changing values must never reflow the top row.
@@ -395,8 +433,8 @@ fn wrist_top_widths() -> [i32; 6] {
 
 #[cfg(test)]
 fn wrist_bottom_widths() -> [i32; 5] {
-    ["BAT 100%", "CPU 100%", "RAM 999T/999T", "GPU 100%", "VRA 999T/999T"]
-        .map(wrist_text_width)
+    ["BAT 99%", "CPU 99% 99°", "RAM 999T/999T", "GPU 99% 99°", "VRA 999T/999T"]
+        .map(wrist_bottom_text_width)
 }
 
 // Distribute visible gaps evenly using the *rendered* field widths. Fixed
@@ -496,6 +534,29 @@ fn load_percent(value: Option<f32>) -> String {
     value.filter(|v| v.is_finite() && *v >= 0.0)
         .map_or_else(|| "--%".to_string(), |v| format!("{:02}%", v.round() as u16))
 }
+// Only watch load/battery values are capped to two digits. The underlying
+// values (and their warning colours) remain accurate. HEAD still shows 100%.
+fn wrist_load_percent(value: Option<f32>) -> String {
+    value.filter(|v| v.is_finite() && *v >= 0.0)
+        .map_or_else(|| "--%".into(), |v| format!("{:02}%", (v.round() as u16).min(99)))
+}
+fn wrist_battery_percent(value: Option<u8>) -> String {
+    value.map_or_else(|| "--%".into(), |v| format!("{:02}%", v.min(99)))
+}
+// Display is capped at 99° to retain two digits. Warning uses the raw reading.
+fn temperature_text(value: Option<f32>) -> String {
+    match value {
+        Some(v) if v.is_finite() && v >= 0.0 => format!("{:.0}°", v.round().min(99.0)),
+        _ => "--°".into(),
+    }
+}
+fn temperature_colour(value: Option<f32>) -> [u8; 4] {
+    match value {
+        Some(v) if v.is_finite() && v >= 90.0 => RESOURCE_CRITICAL,
+        Some(v) if v.is_finite() && v >= 80.0 => RESOURCE_WARNING,
+        _ => TEXT,
+    }
+}
 fn used_total_short(used: Option<f32>, total: Option<f32>) -> String {
     match (used, total) {
         (Some(used), Some(total)) => format!("{used:.0}/{total:.0}G"),
@@ -562,6 +623,32 @@ mod tests {
     fn compact_glyphs_keep_two_pixel_blocks() {
         assert!(compact_width("RAM 15/32G") > 0);
         assert!(compact_width("VRAM 12/16G") < 11 * 16);
+    }
+    #[test]
+    fn watch_temperatures_and_percentages_are_capped_without_changing_alerts() {
+        assert_eq!(temperature_text(Some(49.6)), "50°");
+        assert_eq!(temperature_text(Some(120.0)), "99°");
+        assert_eq!(temperature_text(None), "--°");
+        assert_eq!(wrist_load_percent(Some(100.0)), "99%");
+        assert_eq!(wrist_battery_percent(Some(100)), "99%");
+        assert_eq!(load_percent(Some(100.0)), "100%");
+        assert_eq!(temperature_colour(Some(79.9)), TEXT);
+        assert_eq!(temperature_colour(Some(80.0)), RESOURCE_WARNING);
+        assert_eq!(temperature_colour(Some(89.9)), RESOURCE_WARNING);
+        assert_eq!(temperature_colour(Some(90.0)), RESOURCE_CRITICAL);
+        assert_eq!(temperature_colour(Some(120.0)), RESOURCE_CRITICAL);
+        assert_eq!(temperature_colour(None), TEXT);
+    }
+    #[test]
+    fn watch_footer_with_temperatures_fits_in_550_pixels() {
+        let widths = wrist_bottom_widths();
+        assert!(wrist_row_required(widths) <= WRIST_WIDTH as i32);
+        assert!(wrist_bottom_text_width("CPU 99% 99°") <= widths[1]);
+        assert!(wrist_bottom_text_width("GPU 99% 99°") <= widths[3]);
+        let positions = wrist_row_positions(widths);
+        assert_eq!(positions[0], 10);
+        assert_eq!(positions[4] + widths[4], WRIST_WIDTH as i32 - 10);
+        assert!(glyph_bitmap('°').is_some());
     }
     #[test]
     fn percentages_have_stable_widths_and_zero_padding() {
@@ -756,8 +843,8 @@ mod tests {
             (Some(128.0),Some(256.0)), (Some(999.0),Some(999.0)),
             (Some(1024.0),Some(2048.0)),
             (Some(f32::MAX),Some(f32::MAX))] {
-            assert!(wrist_text_width(&format!("RAM {}", used_total_wrist(mem.0,mem.1))) <= bottom[2]);
-            assert!(wrist_text_width(&format!("VRA {}", used_total_wrist(mem.0,mem.1))) <= bottom[4]);
+            assert!(wrist_bottom_text_width(&format!("RAM {}", used_total_wrist(mem.0,mem.1))) <= bottom[2]);
+            assert!(wrist_bottom_text_width(&format!("VRA {}", used_total_wrist(mem.0,mem.1))) <= bottom[4]);
         }
         for ms in [None,Some(9.2),Some(99.9),Some(99.96),Some(100.0),
             Some(999.0),Some(999.9),Some(1000.0),Some(f32::MAX)] {
@@ -787,10 +874,11 @@ mod tests {
         for row in [
             vec!["FPS 71", "CPU 03.3ms", "GPU 10.2ms", "DROP 1", "RES 250%", "16:48"],
             vec!["FPS 999+", "CPU 999+ms", "GPU 999+ms", "DROP 999M", "RES 9999%", "23:59"],
-            vec!["BAT 18%", "CPU 21%", "RAM 14/31", "GPU 74%", "VRA 11/16"],
-            vec!["BAT 100%", "CPU 100%", "RAM 999T/999T", "GPU 100%", "VRA 999T/999T"],
+            vec!["BAT 18%", "CPU 21% 50°", "RAM 14/31", "GPU 74% 58°", "VRA 11/16"],
+            vec!["BAT 99%", "CPU 99% 99°", "RAM 999T/999T", "GPU 99% 99°", "VRA 999T/999T"],
         ] {
-            let widths: Vec<i32> = row.iter().map(|text| wrist_text_width(text)).collect();
+            let widths: Vec<i32> = row.iter().map(|text| if row.len() == 5 { wrist_bottom_text_width(text) }
+                else { wrist_text_width(text) }).collect();
             // Use five- or six-field arrays to exercise the actual layout.
             let positions = if widths.len() == 6 {
                 wrist_row_positions(std::array::from_fn::<_, 6, _>(|i| widths[i])).to_vec()
@@ -875,11 +963,13 @@ mod tests {
         assert_eq!((WIDTH, HEIGHT), (864, 160));
         assert_eq!(top_row_positions()[0], 10);
         assert_eq!(GRAPH_X, 194);
-        // The original y=7 top row, y=48/94 frame-time labels and y=138
-        // footer remain in the same positions as v1.11.
+        // The head top row, frame graph and footer remain at their original
+        // positions; CPU/GPU frame-time labels move slightly to fit temperatures.
         assert!(7 + 16 < 32);
-        assert!(48 + 16 < 79);
-        assert!(94 + 16 < 129);
+        assert!(42 + 16 < 62);
+        assert!(62 + 16 < 79);
+        assert!(87 + 16 < 110);
+        assert!(110 + 16 < 129);
         assert_eq!(HEAD_GRAPH_Y, 34);
         assert_eq!(HEAD_GRAPH_H, 94);
         assert_eq!(HEAD_GRAPH_Y, 32 + 2);
