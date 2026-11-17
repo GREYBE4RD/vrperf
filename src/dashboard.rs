@@ -37,7 +37,7 @@ impl State {
 
 #[derive(Debug,Clone,Copy,PartialEq)]
 pub enum Action { SetVisible(bool), SetMode(Mode), StartCalibration(Mode), SaveCalibration,
-    CancelCalibration, SizeDelta(f32) }
+    ResetCalibration, CancelCalibration, SizeDelta(f32) }
 
 fn hit(x:f32,y:f32,b:(f32,f32,f32,f32))->bool {
     x.is_finite() && y.is_finite() && x>=b.0 && x<=b.2 && y>=b.1 && y<=b.3
@@ -53,8 +53,9 @@ fn action_at(x:f32,y:f32)->Option<Action> {
     if hit(x,y,(268.,273.,496.,317.)) {return Some(Action::StartCalibration(Mode::Right));}
     if hit(x,y,(16.,339.,100.,379.)) {return Some(Action::SizeDelta(-0.005));}
     if hit(x,y,(412.,339.,496.,379.)) {return Some(Action::SizeDelta(0.005));}
-    if hit(x,y,(16.,390.,244.,438.)) {return Some(Action::SaveCalibration);}
-    if hit(x,y,(268.,390.,496.,438.)) {return Some(Action::CancelCalibration);}
+    if hit(x,y,(16.,384.,164.,432.)) {return Some(Action::SaveCalibration);}
+    if hit(x,y,(182.,384.,330.,432.)) {return Some(Action::ResetCalibration);}
+    if hit(x,y,(348.,384.,496.,432.)) {return Some(Action::CancelCalibration);}
     None
 }
 
@@ -127,33 +128,37 @@ impl Dashboard {
             else { format!("{:.1} CM",state.watch_width_m*100.0) };
         self.image.text(188,349,&size_text,2,WHITE);
         for (x,label,active) in [(16,"SAVE",state.calibrating.is_some()),
-            (268,"CANCEL",state.calibrating.is_some())] {
-            self.image.rect(x,390,228,48,if active {ACTIVE} else {INACTIVE});
-            self.image.text(x+66,403,label,2,WHITE);
+            (182,"RESET",state.calibrating.is_some()),
+            (348,"CANCEL",state.calibrating.is_some())] {
+            self.image.rect(x,384,148,48,if active {ACTIVE} else {INACTIVE});
+            self.image.text(x+(148-(label.len() as i32*16))/2,397,label,2,WHITE);
         }
         // Explicit instruction: the SteamVR dashboard must be CLOSED while
         // moving the watch. Calibration can continue inside a running game.
         let instructions = match state.calibrating {
             Some(Mode::Left) => [
+                "NEW/RESET FACES HEADSET UNTIL GRIP",
                 "CLOSE STEAMVR DASHBOARD",
                 "IN GAME: RELEASE RIGHT GRIP",
-                "HOLD RIGHT GRIP; MOVE WATCH",
-                "REOPEN DASHBOARD; SAVE/CANCEL",
+                "HOLD RIGHT GRIP; MOVE OVERLAY",
+                "REOPEN DASH; SAVE/RESET/CANCEL",
             ],
             Some(Mode::Right) => [
+                "NEW/RESET FACES HEADSET UNTIL GRIP",
                 "CLOSE STEAMVR DASHBOARD",
                 "IN GAME: RELEASE LEFT GRIP",
-                "HOLD LEFT GRIP; MOVE WATCH",
-                "REOPEN DASHBOARD; SAVE/CANCEL",
+                "HOLD LEFT GRIP; MOVE OVERLAY",
+                "REOPEN DASH; SAVE/RESET/CANCEL",
             ],
             _ => [
+                "NEW/RESET FACES HEADSET UNTIL GRIP",
                 "1. SELECT CAL LEFT OR RIGHT",
                 "2. CLOSE STEAMVR DASHBOARD",
                 "3. GRIP OTHER HAND; MOVE OVERLAY",
                 "4. REOPEN DASH; SAVE/CANCEL",
             ],
         };
-        for (line,y) in instructions.into_iter().zip([446,471,496,521]) {
+        for (line,y) in instructions.into_iter().zip([440,461,482,503,524]) {
             self.image.instruction_text(16,y,line,if state.calibrating.is_some() {WHITE} else {DIM});
         }
         self.image.rect(16,548,480,1,[45,59,75,255]);
@@ -260,7 +265,9 @@ mod tests {
         assert_eq!(action_at(80.,295.),Some(Action::StartCalibration(Mode::Left)));
         assert_eq!(action_at(400.,295.),Some(Action::StartCalibration(Mode::Right)));
         assert_eq!(action_at(80.,420.),Some(Action::SaveCalibration));
+        assert_eq!(action_at(250.,420.),Some(Action::ResetCalibration));
         assert_eq!(action_at(400.,420.),Some(Action::CancelCalibration));
+        assert_eq!(action_at(175.,420.),None);
         assert_eq!(action_at(50.,350.),Some(Action::SizeDelta(-0.005)));
         assert_eq!(action_at(450.,350.),Some(Action::SizeDelta(0.005)));
         assert_eq!(action_at(f32::NAN,120.),None);
@@ -272,7 +279,12 @@ mod tests {
         assert!(24+"PCVR Performance Overlay".len()*16 <= W);
         assert!(16+"POSITION".len()*16 <= W);
         assert!(16+"3. GRIP OTHER HAND; MOVE OVERLAY".len()*INSTRUCTION_ADVANCE as usize <= W-16);
-        assert!(16+"4. REOPEN DASH; SAVE/CANCEL".len()*INSTRUCTION_ADVANCE as usize <= W-16);
-        assert!(521+16 < 548); // Last instruction is above resolution divider.
+        for line in ["NEW/RESET FACES HEADSET UNTIL GRIP",
+            "3. GRIP OTHER HAND; MOVE OVERLAY",
+            "4. REOPEN DASH; SAVE/CANCEL",
+            "REOPEN DASH; SAVE/RESET/CANCEL"] {
+            assert!(16+line.len()*INSTRUCTION_ADVANCE as usize <= W-16);
+        }
+        assert!(524+16 < 548); // Fifth line stays above resolution divider.
     }
 }

@@ -40,10 +40,44 @@ fn watch_visible(calibrating: bool, calibrated: bool,
     alignment.is_some_and(|(face,gaze)| wants_visible(face,gaze,already))
 }
 
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]
+}
+fn unit(v: [f32; 3]) -> Option<[f32; 3]> {
+    let len=norm(v);
+    (len.is_finite() && len>0.0001).then(|| v.map(|n|n/len))
+}
+
+// While uncalibrated (or after RESET), place the watch above its tracked
+// controller in standing space and aim the front (+Z) toward the HMD.
+// Return a controller-relative transform so SteamVR still tracks the hand.
+// This is intentionally a live preview: once grabbed or SAVEd, it stops
+// following the headset orientation and uses the saved rigid pose instead.
+fn headset_facing_mount(controller: Matrix, hmd: Matrix, width_m: f32) -> Option<WatchMount> {
+    let location = [controller[0][3],controller[1][3]+0.12,controller[2][3]];
+    let towards = unit([
+        hmd[0][3]-location[0],hmd[1][3]-location[1],hmd[2][3]-location[2],
+    ])?;
+    // Keep the text level in standing space; use the headset's right axis
+    // if looking nearly straight up/down would make world-up degenerate.
+    let right = unit(cross([0.0,1.0,0.0],towards)).or_else(|| {
+        let hmd_right = [hmd[0][0],hmd[1][0],hmd[2][0]];
+        let component=dot(hmd_right,towards);
+        unit(std::array::from_fn(|i|hmd_right[i]-towards[i]*component))
+    })?;
+    let up=cross(towards,right);
+    let world: Matrix=std::array::from_fn(|i|[
+        right[i],up[i],towards[i],location[i],
+    ]);
+    let mount=WatchMount {transform:multiply(inverse(controller),world),width_m};
+    valid(&mount).then_some(mount)
+}
+
 #[derive(Debug)]
 struct Calibration {
     side: Mode,
     original: WatchMount,
+    original_facing: bool,
     // Position of the watch relative to the moving opposite-hand controller.
     grab_anchor: Option<Matrix>,
     armed: bool,
@@ -52,6 +86,7 @@ struct Calibration {
 pub struct Positioner {
     mounts: [WatchMount;2],
     calibrated: [bool;2],
+    face_headset: [bool;2],
     active: Option<Calibration>,
     device: Option<TrackedDeviceIndex>,
     last_mode: Option<Mode>,
@@ -63,8 +98,9 @@ pub struct Positioner {
 impl Positioner {
     pub fn new(saved_mounts: [Option<WatchMount>;2]) -> Self {
         let calibrated = saved_mounts.map(|mount| mount.is_some());
+        let face_headset = calibrated.map(|saved| !saved);
         let mounts = saved_mounts.map(|mount| mount.unwrap_or_default());
-        Self { mounts, calibrated, active: None, device: None, last_mode: None,
+        Self { mounts, calibrated, face_headset, active: None, device: None, last_mode: None,
             visible: false, watch_target: false, dirty: true }
     }
     pub fn mount(&self, mode: Mode) -> Option<WatchMount> { hand_index(mode).map(|i|self.mounts[i]) }
@@ -75,24 +111,46 @@ impl Positioner {
     pub fn start_calibration(&mut self, side: Mode) -> Result<(), String> {
         let i=hand_index(side).ok_or("Select a watch hand to calibrate")?;
         if self.active.is_some() { self.cancel_calibration(); }
-        self.active=Some(Calibration { side, original:self.mounts[i], grab_anchor:None, armed:false });
+        self.active=Some(Calibration { side, original:self.mounts[i],
+            original_facing:self.face_headset[i], grab_anchor:None, armed:false });
         self.last_mode=None;
         self.dirty=true;
         Ok(())
     }
     pub fn cancel_calibration(&mut self) {
         if let Some(c) = self.active.take() {
-            if let Some(i)=hand_index(c.side) { self.mounts[i]=c.original; }
+            if let Some(i)=hand_index(c.side) {
+                self.mounts[i]=c.original;
+                self.face_headset[i]=c.original_facing;
+            }
             self.dirty=true;
         }
     }
     pub fn save_calibration(&mut self) -> Option<(Mode,WatchMount)> {
         let cal=self.active.take()?;
         let i=hand_index(cal.side)?;
-        if !valid(&self.mounts[i]) { self.mounts[i]=cal.original; return None; }
+        if !valid(&self.mounts[i]) {
+            self.mounts[i]=cal.original;
+            self.face_headset[i]=cal.original_facing;
+            return None;
+        }
+        self.face_headset[i]=false;
         self.calibrated[i]=true;
         self.dirty=true;
         Some((cal.side,self.mounts[i]))
+    }
+    // RESET is a preview. Only SAVE persists the new default placement.
+    pub fn reset_calibration(&mut self) -> bool {
+        let Some(i)=self.calibrating().and_then(hand_index) else { return false; };
+        let width_m=self.mounts[i].width_m;
+        self.mounts[i]=WatchMount {width_m,..WatchMount::default()};
+        self.face_headset[i]=true;
+        if let Some(cal)=self.active.as_mut() {
+            cal.grab_anchor=None;
+            cal.armed=false; // Require release before the next manual grab.
+        }
+        self.dirty=true;
+        true
     }
     pub fn adjust_width(&mut self, delta_m: f32) {
         if let Some(i)=self.calibrating().and_then(hand_index) {
@@ -117,6 +175,8 @@ impl Positioner {
         if !cal.armed { return; } // Require a new grip after calibration starts.
         let Some(i)=hand_index(cal.side) else { return; };
         if cal.grab_anchor.is_none() {
+            // Hand control takes over from the live headset-facing preview.
+            self.face_headset[i]=false;
             let panel_world=multiply(target_world,self.mounts[i].transform);
             cal.grab_anchor=Some(multiply(inverse(other_world),panel_world));
             eprintln!("vrperf: watch grabbed; move and rotate opposite controller, then release grip/trigger");
@@ -168,6 +228,14 @@ impl Positioner {
         }
         let controller=controller.expect("checked pose");
         let hmd=hmd.expect("checked pose");
+        if self.face_headset[i] {
+            if let Some(mount)=headset_facing_mount(
+                *controller.device_to_absolute_tracking(),
+                *hmd.device_to_absolute_tracking(),self.mounts[i].width_m) {
+                self.mounts[i]=mount;
+                self.dirty=true;
+            }
+        }
         if self.calibrating()==Some(config.mode) {
             let other_role=match config.mode { Mode::Left=>openvr::TrackedControllerRole::RightHand,
                 Mode::Right=>openvr::TrackedControllerRole::LeftHand, Mode::Head=>unreachable!() };
@@ -203,6 +271,75 @@ impl Positioner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn headset_facing_mount_aims_at_hmd_and_stays_above_controller() {
+        let ctrl=[[1.,0.,0.,0.4],[0.,1.,0.,1.2],[0.,0.,1.,-0.6]];
+        let hmd=[[1.,0.,0.,0.0],[0.,1.,0.,1.7],[0.,0.,1.,0.0]];
+        let mount=headset_facing_mount(ctrl,hmd,0.14).unwrap();
+        assert!(valid(&mount));
+        assert!(watch_alignment(ctrl,hmd,mount).unwrap().0>0.999);
+        let world=multiply(ctrl,mount.transform);
+        assert!((world[0][3]-0.4).abs()<0.0001);
+        assert!((world[1][3]-1.32).abs()<0.0001);
+        assert!((world[2][3]+0.6).abs()<0.0001);
+    }
+    #[test]
+    fn face_headset_works_with_turned_controller_and_tilted_headset() {
+        let ctrl=[[0.,0.,1.,0.2],[0.,1.,0.,1.0],[-1.,0.,0.,-0.3]];
+        let hmd=[[0.,-1.,0.,0.1],[1.,0.,0.,1.6],[0.,0.,1.,0.2]];
+        let mount=headset_facing_mount(ctrl,hmd,0.14).unwrap();
+        assert!(valid(&mount));
+        assert!(watch_alignment(ctrl,hmd,mount).unwrap().0>0.999);
+    }
+    #[test]
+    fn reset_is_a_preview_and_preserves_size_and_other_wrist() {
+        let mut original=WatchMount::default();
+        original.transform[0][3]=0.1;
+        original.width_m=0.19;
+        let other=WatchMount::default();
+        let mut pos=Positioner::new([Some(original),Some(other)]);
+        assert!(!pos.reset_calibration());
+        pos.start_calibration(Mode::Left).unwrap();
+        pos.reset_calibration();
+        assert!(pos.face_headset[0]);
+        assert!(!pos.face_headset[1]);
+        let reset=pos.mount(Mode::Left).unwrap();
+        assert_eq!(reset.width_m,0.19);
+        assert_eq!(reset.transform,WatchMount::default().transform);
+        assert_eq!(pos.mount(Mode::Right),Some(other));
+        pos.cancel_calibration();
+        assert_eq!(pos.mount(Mode::Left),Some(original));
+        assert!(!pos.face_headset[0]);
+    }
+    #[test]
+    fn manual_grab_and_save_leave_headset_facing_mode() {
+        let mut pos=Positioner::new([None,None]);
+        assert!(pos.face_headset[0]);
+        pos.start_calibration(Mode::Left).unwrap();
+        let ctrl=[[1.,0.,0.,0.],[0.,1.,0.,0.],[0.,0.,1.,0.]];
+        let other=[[1.,0.,0.,0.1],[0.,1.,0.,0.],[0.,0.,1.,0.]];
+        pos.tick_grab(ctrl,Some(other),Some(false));
+        pos.tick_grab(ctrl,Some(other),Some(true));
+        assert!(!pos.face_headset[0]);
+        pos.tick_grab(ctrl,Some(other),Some(false));
+        assert!(pos.save_calibration().is_some());
+        assert!(pos.calibrated[0]);
+        assert!(!pos.face_headset[0]);
+        assert!(pos.face_headset[1]);
+    }
+    #[test]
+    fn cancel_unfinished_first_calibration_restores_facing_mode() {
+        let mut pos=Positioner::new([None,None]);
+        pos.start_calibration(Mode::Left).unwrap();
+        pos.tick_grab([[1.,0.,0.,0.],[0.,1.,0.,0.],[0.,0.,1.,0.]],
+            Some([[1.,0.,0.,0.],[0.,1.,0.,0.],[0.,0.,1.,0.]]),Some(false));
+        pos.tick_grab([[1.,0.,0.,0.],[0.,1.,0.,0.],[0.,0.,1.,0.]],
+            Some([[1.,0.,0.,0.],[0.,1.,0.,0.],[0.,0.,1.,0.]]),Some(true));
+        assert!(!pos.face_headset[0]);
+        pos.cancel_calibration();
+        assert!(pos.face_headset[0]);
+        assert!(!pos.calibrated[0]);
+    }
     #[test]
     fn watch_width_is_narrower_without_changing_saved_calibration() {
         let saved = WatchMount::default();

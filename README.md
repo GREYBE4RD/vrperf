@@ -21,7 +21,7 @@ Choose a panel fixed in front of you (**HEAD**), or a watch attached to your **L
 
 **HEAD** stays fixed in your view. A calibrated **LEFT** or **RIGHT** watch appears when you turn it towards your eyes and look at it. It hides as soon as you turn away, without a fade or delay. Only one display mode is selected at a time.
 
-**On first LEFT/RIGHT use**, the smaller watch uses the original v1.11 controller-relative position and stays visible so you can find it easily. Follow the steps below to place it where you want. Saved positions remain unchanged when you update vrperf.
+**On first LEFT/RIGHT use**, the watch appears about 12 cm above its controller and **automatically faces the headset**. It remains visible and keeps facing the headset as you move your hand or head. This makes it easier to locate before calibration. Follow the steps below to adjust it. Existing saved watch positions remain unchanged when you update vrperf.
 
 ## Calibrating a watch
 
@@ -35,11 +35,11 @@ Calibration works both while loaded into a game or not. You do not need to exit 
 4. While holding the grip, move and rotate that controller. The watch follows it. Place the watch above your other wrist so you can read it comfortably.
 5. Release the grip to leave the watch in place. Hold grip it again to make further adjustments.
 6. Reopen the SteamVR dashboard and use the **-** and **+** to change watch size in 0.5 cm steps if needed.
-7. Select **SAVE** to keep the position, angle and size. Select **CANCEL** to restore the previous calibration.
+7. Select **SAVE** to keep the position, angle and size. **RESET** restores the headset-facing default position and angle for the selected watch, but keeps its current size. **CANCEL** restores the previous saved position and size. RESET is a preview until you select SAVE.
 
 Repeat for the other wrist if needed. Releasing the grip **does not save** your changes; reopen the dashboard and select **SAVE**. Selecting another display mode before saving cancels the adjustment. There is no keyboard shortcut for CANCEL; use the dashboard button. If SteamVR exits before SAVE, the last saved position returns when you restart.
 
-Before its first saved calibration, a watch uses the unrotated v1.11 controller offset (**12 cm along controller Y and -13 cm along controller Z**). It remains visible while tracked. After saving, normal angle-based visibility takes effect. Saved calibrations persist after reboot and are not changed by an update.
+**Headset-facing mode:** Until you manually grab an uncalibrated watch, it stays about 12 cm above its tracked controller in standing space and continuously turns to face the headset. The same happens when you select RESET during calibration. When you first hold the opposite controller's grip to move the watch, manual placement takes over and automatic facing stops. The position then stays fixed relative to the controller, even after you release the grip. SAVE keeps the current position and exits headset-facing mode; RESET followed by SAVE stores the new default orientation. CANCEL restores the previous position and size, and a first-use watch resumes headset-facing mode if its calibration was not saved. RESET never changes the other watch. Saved calibrations persist after reboot and upgrades. After SAVE, normal angle-based visibility takes effect.
 
 ## Installing vrperf
 

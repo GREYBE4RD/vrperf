@@ -180,6 +180,13 @@ fn run() -> Result<(), Box<dyn Error>> {
                         positioner.update(&system,&mut overlays,handle,&config,enabled,grab)?;
                     }
                 }
+                Ok(Some(DashboardAction::ResetCalibration)) => {
+                    if positioner.reset_calibration() {
+                        // Show the live headset-facing preview immediately.
+                        // SAVE persists it; CANCEL restores the old position.
+                        positioner.update(&system,&mut overlays,handle,&config,enabled,grab)?;
+                    }
+                }
                 Ok(Some(DashboardAction::CancelCalibration)) => {
                     if positioner.calibrating().is_some() {
                         positioner.cancel_calibration();

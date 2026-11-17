@@ -13,9 +13,9 @@ pub struct WatchMount {
 
 impl Default for WatchMount {
     fn default() -> Self {
-        // Restore the unrotated v1.11 controller-relative placement. This puts
-        // an unsaved watch above and forward of the controller for first-use
-        // calibration. Existing saved watch mounts still override this default.
+        // Fallback v1.11 position until valid tracking poses are available.
+        // Uncalibrated watches normally get a live headset-facing transform
+        // from Positioner. Saved watch mounts still override this default.
         Self { transform: [
             [1.0, 0.0, 0.0, 0.0],
             [0.0, 1.0, 0.0, 0.12],

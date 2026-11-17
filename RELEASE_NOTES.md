@@ -1,3 +1,14 @@
+# vrperf v1.36.0 (2026-11-16)
+
+- Make uncalibrated watches easy to locate: show the panel 12 cm above the tracked controller in standing space, continually oriented toward the headset until manual grip placement begins or the calibration is saved. Once grabbed, hand calibration takes over and the panel stops tracking headset orientation.
+- Add RESET between SAVE and CANCEL during left or right watch calibration. RESET previews headset-facing default placement for the selected hand without changing its size or overwriting the last saved position; SAVE commits it, CANCEL restores the original.
+- Preserve saved watch positions, independent per-hand calibration, grip-release safety, and normal post-calibration visibility rules.
+- Add an on-screen headset-facing instruction and fit the five-line help below the new three-button row without changing the 512 x 600 dashboard size.
+- Explain the preview, RESET, SAVE and CANCEL behaviour in the README. Add positioning, reset and cancellation tests.
+- Build and check the behaviour with SteamVR and a tracked headset/controller before publishing.
+
+---
+
 # vrperf v1.35.0 (development temperature monitoring, 2026-11-12)
 
 - Show CPU and GPU temperatures in HEAD and watch modes. Keep the watch at 550 x 160 pixels; condense only its bottom text and preserve evenly spaced fields.
