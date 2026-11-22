@@ -37,6 +37,7 @@ const TEXT: [u8; 4] = [235, 242, 250, 255];
 const MUTED: [u8; 4] = [158, 175, 193, 255];
 const CPU: [u8; 4] = [96, 171, 255, 255];
 const GPU: [u8; 4] = [100, 225, 163, 255];
+const HEALTHY: [u8; 4] = [112, 220, 160, 255]; // normal watch measurements
 // Separate warning colours preserve CPU/GPU identity above the frame budget.
 const CPU_OVER_BUDGET: [u8; 4] = [255, 204, 79, 255]; // amber
 const GPU_OVER_BUDGET: [u8; 4] = [255, 131, 65, 255]; // orange
@@ -138,58 +139,84 @@ impl Renderer {
     fn draw_wrist(&mut self, monitor: &FrameMonitor, hw: &HardwareStats,
         devices: &DeviceStats, hz: f32, budget: f32) {
         let latest = monitor.latest();
-        // One information row above the graph and one below. Space the
-        // *visible* readings evenly; maximum formatted values still fit.
-        // The clock stays at the right edge of the top row.
-        let fps = wrist_fps_text(monitor.current_fps(hz));
-        let top = [
-            (fps, TEXT),
-            (format!("CPU {}", wrist_frame_time_text(latest.map(|f| f.cpu_ms))),
-                frame_time_colour(latest.map(|f| f.cpu_ms), budget, CPU, CPU_OVER_BUDGET)),
-            (format!("GPU {}", wrist_frame_time_text(latest.map(|f| f.gpu_ms))),
-                frame_time_colour(latest.map(|f| f.gpu_ms), budget, GPU, GPU_OVER_BUDGET)),
-            (format_wrist_drops(monitor.is_active().then_some(monitor.dropped)), DROPPED),
-            (format_wrist_resolution(devices.display_resolution(monitor.is_active())), MUTED),
-            (devices::local_clock(), TEXT),
+        let fps = monitor.current_fps(hz);
+        let fps_text = wrist_fps_text(fps);
+        let fps_value = fps_text.strip_prefix("FPS ").unwrap_or(&fps_text);
+        let hz_text = if hz.is_finite() && hz > 0.0 { format!("/{hz:.0}Hz") }
+            else { "/--Hz".into() };
+        let cpu_ms = wrist_frame_time_text(latest.map(|f| f.cpu_ms));
+        let gpu_ms = wrist_frame_time_text(latest.map(|f| f.gpu_ms));
+        let cpu_ms_value = cpu_ms.strip_suffix("ms").unwrap_or(&cpu_ms);
+        let gpu_ms_value = gpu_ms.strip_suffix("ms").unwrap_or(&gpu_ms);
+        let drops_value = monitor.is_active().then_some(monitor.dropped);
+        let drops = format_wrist_drops(drops_value);
+        let drops_text = drops.strip_prefix("DROP ").unwrap_or(&drops);
+        let resolution_value = devices.display_resolution(monitor.is_active());
+        let resolution = format_wrist_resolution(resolution_value);
+        let resolution_text = resolution.strip_prefix("RES ").unwrap_or(&resolution);
+        let (resolution_number, resolution_unit) = match resolution_text.strip_suffix('%') {
+            Some(number) => (number, "%"), None => (resolution_text, ""),
+        };
+        let clock = devices::local_clock();
+        // Short fixed-width tokens remain white; measurements carry their own
+        // independent green/orange/red state. The Hz reference stays white.
+        let top: [&[WristRun<'_>]; 6] = [
+            &[("FPS ", TEXT), (fps_value, wrist_fps_colour(fps, hz)), (&hz_text, TEXT)],
+            &[("CPU ", TEXT), (cpu_ms_value,
+                wrist_frametime_colour(latest.map(|f| f.cpu_ms), budget)), ("ms", TEXT)],
+            &[("GPU ", TEXT), (gpu_ms_value,
+                wrist_frametime_colour(latest.map(|f| f.gpu_ms), budget)), ("ms", TEXT)],
+            &[("DROP ", TEXT), (drops_text, wrist_drop_colour(drops_value))],
+            &[("RES ", TEXT), (resolution_number,
+                if resolution_value.is_some() { HEALTHY } else { MUTED }),
+                (resolution_unit, TEXT)],
+            &[(clock.as_str(), TEXT)],
         ];
-        let top_widths: [i32; 6] = std::array::from_fn(|i| wrist_text_width(&top[i].0));
-        for ((text, colour), x) in top.iter().zip(wrist_row_positions(top_widths)) {
-            self.label_wrist(x, WRIST_TOP_Y, text, *colour);
+        let top_scale = wrist_row_scale(top, 70);
+        let top_widths = top.map(|runs| wrist_runs_width(runs, top_scale));
+        for (runs, x) in top.into_iter().zip(wrist_row_positions(top_widths)) {
+            self.label_wrist_runs(x, WRIST_TOP_Y, runs, top_scale);
         }
-        // Top padding keeps every glyph fully inside the visible panel.
         self.rect(10, 40, WRIST_WIDTH as i32 - 20, 1, [59, 76, 94, 255]);
         self.graph(&monitor.samples, monitor.is_recent(), 10, WRIST_GRAPH_Y,
             WRIST_WIDTH as i32 - 20, WRIST_GRAPH_H, budget);
         self.rect(10, 120, WRIST_WIDTH as i32 - 20, 1, [59, 76, 94, 255]);
-        // Bottom-only font is slightly narrower so both temperature values
-        // fit inside the original 550-pixel watch, even for large RAM/VRAM.
-        // Each reading is drawn in two parts, so the temperature warning colour
-        // is independent from the utilisation percentage warning colour.
-        let cpu_usage = format!("CPU {}", wrist_load_percent(hw.cpu_load));
-        let gpu_usage = format!("GPU {}", wrist_load_percent(hw.gpu_load));
-        let cpu_usage_len = cpu_usage.len() + 1;
-        let gpu_usage_len = gpu_usage.len() + 1;
-        let bottom = [
-            (format!("BAT {}", wrist_battery_percent(devices.hmd)), battery_colour(devices.hmd), None),
-            (format!("{cpu_usage} {}", temperature_text(hw.cpu_temp_c)), usage_colour(hw.cpu_load),
-                Some((cpu_usage_len, temperature_colour(hw.cpu_temp_c)))),
-            (format!("RAM {}", used_total_wrist(hw.ram_used_gib, hw.ram_total_gib)),
-                memory_colour(hw.ram_used_gib, hw.ram_total_gib), None),
-            (format!("{gpu_usage} {}", temperature_text(hw.gpu_temp_c)), usage_colour(hw.gpu_load),
-                Some((gpu_usage_len, temperature_colour(hw.gpu_temp_c)))),
-            (format!("VRA {}", used_total_wrist(hw.vram_used_gib, hw.vram_total_gib)),
-                memory_colour(hw.vram_used_gib, hw.vram_total_gib), None),
+
+        let hmd = wrist_battery_percent(devices.hmd);
+        let left = wrist_battery_percent(devices.left);
+        let right = wrist_battery_percent(devices.right);
+        let hmd_number = hmd.strip_suffix('%').unwrap_or(&hmd);
+        let left_number = left.strip_suffix('%').unwrap_or(&left);
+        let right_number = right.strip_suffix('%').unwrap_or(&right);
+        let cpu_usage = wrist_load_percent(hw.cpu_load);
+        let gpu_usage = wrist_load_percent(hw.gpu_load);
+        let cpu_usage_value = cpu_usage.strip_suffix('%').unwrap_or(&cpu_usage);
+        let gpu_usage_value = gpu_usage.strip_suffix('%').unwrap_or(&gpu_usage);
+        let cpu_temp = temperature_text(hw.cpu_temp_c);
+        let gpu_temp = temperature_text(hw.gpu_temp_c);
+        let cpu_temp_value = cpu_temp.strip_suffix('°').unwrap_or(&cpu_temp);
+        let gpu_temp_value = gpu_temp.strip_suffix('°').unwrap_or(&gpu_temp);
+        let ram = used_total_wrist(hw.ram_used_gib, hw.ram_total_gib);
+        let vram = used_total_wrist(hw.vram_used_gib, hw.vram_total_gib);
+        let (ram_used, ram_total) = ram.split_once('/').unwrap_or((&ram, "--"));
+        let (vram_used, vram_total) = vram.split_once('/').unwrap_or((&vram, "--"));
+        let bottom: [&[WristRun<'_>]; 5] = [
+            &[("BAT H", TEXT), (hmd_number, battery_colour(devices.hmd)),
+                ("/L", TEXT), (left_number, battery_colour(devices.left)),
+                ("/R", TEXT), (right_number, battery_colour(devices.right)), ("%", TEXT)],
+            &[("CPU ", TEXT), (cpu_usage_value, usage_colour(hw.cpu_load)), ("% ", TEXT),
+                (cpu_temp_value, temperature_colour(hw.cpu_temp_c)), ("°", TEXT)],
+            &[("RAM ", TEXT), (ram_used, memory_colour(hw.ram_used_gib, hw.ram_total_gib)),
+                ("/", TEXT), (ram_total, if ram_total == "--" { MUTED } else { TEXT })],
+            &[("GPU ", TEXT), (gpu_usage_value, usage_colour(hw.gpu_load)), ("% ", TEXT),
+                (gpu_temp_value, temperature_colour(hw.gpu_temp_c)), ("°", TEXT)],
+            &[("VRA ", TEXT), (vram_used, memory_colour(hw.vram_used_gib, hw.vram_total_gib)),
+                ("/", TEXT), (vram_total, if vram_total == "--" { MUTED } else { TEXT })],
         ];
-        let bottom_widths: [i32; 5] = std::array::from_fn(|i| wrist_bottom_text_width(&bottom[i].0));
-        for ((text, colour, temperature), x) in bottom.iter().zip(wrist_row_positions(bottom_widths)) {
-            if let Some((offset, hot_colour)) = temperature {
-                let (usage, degrees) = text.split_at(*offset);
-                self.label_wrist_bottom(x, WRIST_BOTTOM_Y, usage, *colour);
-                self.label_wrist_bottom(x + wrist_bottom_text_width(usage), WRIST_BOTTOM_Y,
-                    degrees, *hot_colour);
-            } else {
-                self.label_wrist_bottom(x, WRIST_BOTTOM_Y, text, *colour);
-            }
+        let bottom_scale = wrist_row_scale(bottom, 63);
+        let bottom_widths = bottom.map(|runs| wrist_runs_width(runs, bottom_scale));
+        for (runs, x) in bottom.into_iter().zip(wrist_row_positions(bottom_widths)) {
+            self.label_wrist_runs(x, WRIST_BOTTOM_Y, runs, bottom_scale);
         }
     }
 
@@ -251,16 +278,18 @@ impl Renderer {
         }
     }
 
-    // Preserve the 16px font height. Only the bottom line is condensed
-    // slightly more, to make room for the new temperature values.
-    fn label_wrist(&mut self, x: i32, y: i32, text: &str, color: [u8; 4]) {
-        self.label_wrist_scaled(x, y, text, color, false);
+    // Keep a constant 16-pixel font height. Only horizontal advances change
+    // when long values would otherwise exceed the 550-pixel watch width.
+    fn label_wrist_runs(&mut self, mut x: i32, y: i32,
+        runs: &[WristRun<'_>], scale: i32) {
+        for &(text, colour) in runs {
+            self.label_wrist_scaled(x, y, text, colour, scale);
+            x += wrist_text_width_scaled(text, scale);
+        }
     }
-    fn label_wrist_bottom(&mut self, x: i32, y: i32, text: &str, color: [u8; 4]) {
-        self.label_wrist_scaled(x, y, text, color, true);
-    }
+
     fn label_wrist_scaled(&mut self, x: i32, y: i32, text: &str,
-        color: [u8; 4], bottom: bool) {
+        color: [u8; 4], scale: i32) {
         let mut cursor = x;
         for ch in text.chars() {
             if let Some(bitmap) = glyph_bitmap(ch) {
@@ -269,9 +298,10 @@ impl Renderer {
                         for col in first..=last {
                             if *bits & (1_u8 << col) != 0 {
                                 let local = col - first;
-                                let (numerator, denominator) = if bottom { (5, 4) } else { (7, 5) };
-                                let start_x = local * numerator / denominator;
-                                let end_x = (local + 1) * numerator / denominator;
+                                // At the minimum 50% scale each source
+                                // column remains at least one pixel wide.
+                                let start_x = local * scale / 50;
+                                let end_x = (local + 1) * scale / 50;
                                 self.rect(cursor + start_x, y + row as i32 * 2,
                                     end_x - start_x, 2, color);
                             }
@@ -279,7 +309,7 @@ impl Renderer {
                     }
                 }
             }
-            cursor += if bottom { wrist_bottom_advance(ch) } else { wrist_advance(ch) };
+            cursor += wrist_advance_scaled(ch, scale);
         }
     }
 
@@ -375,17 +405,28 @@ fn compact_width(text: &str) -> i32 {
     (text.chars().map(compact_advance).sum::<i32>() - 2).max(0)
 }
 
-// Watch glyphs use 70% of the HEAD font's horizontal advance. Reserving
-// the same advances used for drawing keeps each field inside its fixed slot.
-fn wrist_advance(ch: char) -> i32 { (compact_advance(ch) * 7 + 9) / 10 }
-fn wrist_text_width(text: &str) -> i32 {
-    // Reserve the full advance, including the last glyph's ink.
-    text.chars().map(wrist_advance).sum()
+type WristRun<'a> = (&'a str, [u8; 4]);
+fn wrist_advance_scaled(ch: char, scale: i32) -> i32 {
+    (compact_advance(ch) * scale + 99) / 100
 }
-// Bottom line uses 63% of HEAD horizontal advance; top line retains 70%.
-fn wrist_bottom_advance(ch: char) -> i32 { (compact_advance(ch) * 63 + 99) / 100 }
-fn wrist_bottom_text_width(text: &str) -> i32 {
-    text.chars().map(wrist_bottom_advance).sum()
+fn wrist_text_width_scaled(text: &str, scale: i32) -> i32 {
+    text.chars().map(|ch| wrist_advance_scaled(ch, scale)).sum()
+}
+#[cfg(test)]
+fn wrist_text_width(text: &str) -> i32 { wrist_text_width_scaled(text, 70) }
+#[cfg(test)]
+fn wrist_bottom_text_width(text: &str) -> i32 { wrist_text_width_scaled(text, 63) }
+fn wrist_runs_width(runs: &[WristRun<'_>], scale: i32) -> i32 {
+    runs.iter().map(|(text, _)| wrist_text_width_scaled(text, scale)).sum()
+}
+// Prioritise legible 70% top and 63% bottom glyph widths. Only condense
+// toward 50% when a long reading needs more space, never shrink height.
+fn wrist_row_scale<const N: usize>(runs: [&[WristRun<'_>]; N], preferred: i32) -> i32 {
+    for scale in (50..=preferred).rev() {
+        let widths = runs.map(|field| wrist_runs_width(field, scale));
+        if wrist_row_required(widths) <= WRIST_WIDTH as i32 { return scale; }
+    }
+    50
 }
 
 // Constant widths: changing values must never reflow the top row.
@@ -427,20 +468,20 @@ fn top_row_positions() -> [i32; 7] {
 // every field reaches its widest display value at the same time.
 #[cfg(test)]
 fn wrist_top_widths() -> [i32; 6] {
-    ["FPS 999+", "CPU 999+ms", "GPU 999+ms", "DROP 999M", "RES 9999%", "23:59"]
-        .map(wrist_text_width)
+    ["FPS 999+/240Hz", "CPU 999+ms", "GPU 999+ms", "DROP 999P", "RES 9999+", "23:59"]
+        .map(|text| wrist_text_width_scaled(text, 58))
 }
 
 #[cfg(test)]
 fn wrist_bottom_widths() -> [i32; 5] {
-    ["BAT 99%", "CPU 99% 99°", "RAM 999T/999T", "GPU 99% 99°", "VRA 999T/999T"]
-        .map(wrist_bottom_text_width)
+    ["BAT H99/L99/R99%", "CPU 99% 99°", "RAM 999T/999T", "GPU 99% 99°", "VRA 999T/999T"]
+        .map(|text| wrist_text_width_scaled(text, 53))
 }
 
 // Distribute visible gaps evenly using the *rendered* field widths. Fixed
 // maximum-width slots made short readings appear unevenly spaced. Values
 // change position only when the length of another displayed field changes.
-const WRIST_ROW_GAP: i32 = 2;
+const WRIST_ROW_GAP: i32 = 5;
 
 fn wrist_row_required<const N: usize>(widths: [i32; N]) -> i32 {
     widths.iter().sum::<i32>() + 20 + WRIST_ROW_GAP * (N as i32 - 1)
@@ -554,7 +595,8 @@ fn temperature_colour(value: Option<f32>) -> [u8; 4] {
     match value {
         Some(v) if v.is_finite() && v >= 90.0 => RESOURCE_CRITICAL,
         Some(v) if v.is_finite() && v >= 80.0 => RESOURCE_WARNING,
-        _ => TEXT,
+        Some(v) if v.is_finite() && v >= 0.0 => HEALTHY,
+        _ => MUTED,
     }
 }
 fn used_total_short(used: Option<f32>, total: Option<f32>) -> String {
@@ -584,28 +626,59 @@ fn frame_time_colour(ms: Option<f32>, budget: f32, normal: [u8; 4], warning: [u8
         warning
     } else { normal }
 }
+fn wrist_fps_colour(fps: Option<f32>, hz: f32) -> [u8; 4] {
+    match fps {
+        Some(v) if v.is_finite() && v >= 0.0 && hz.is_finite() && hz > 0.0 => {
+            if v < hz * 0.80 { RESOURCE_CRITICAL }
+            else if v < hz * 0.95 { RESOURCE_WARNING }
+            else { HEALTHY }
+        }
+        _ => MUTED,
+    }
+}
+fn wrist_frametime_colour(ms: Option<f32>, budget: f32) -> [u8; 4] {
+    match ms {
+        Some(v) if v.is_finite() && v >= 0.0 && budget.is_finite() && budget > 0.0 => {
+            if v > 2.0 * budget { RESOURCE_CRITICAL }
+            else if v > budget { RESOURCE_WARNING }
+            else { HEALTHY }
+        }
+        _ => MUTED,
+    }
+}
+fn wrist_drop_colour(drops: Option<u64>) -> [u8; 4] {
+    match drops { Some(0) => HEALTHY, Some(_) => RESOURCE_CRITICAL, None => MUTED }
+}
+
 fn percentage_warning(value: Option<f32>) -> [u8; 4] {
     match value.filter(|v| v.is_finite() && *v >= 0.0) {
         Some(v) if v >= 95.0 => RESOURCE_CRITICAL,
         Some(v) if v >= 85.0 => RESOURCE_WARNING,
-        _ => TEXT,
+        Some(_) => HEALTHY,
+        None => MUTED,
     }
 }
 fn usage_colour(value: Option<f32>) -> [u8; 4] {
-    percentage_warning(value)
+    match value.filter(|v| v.is_finite() && *v >= 0.0) {
+        Some(v) if v > 95.0 => RESOURCE_CRITICAL,
+        Some(v) if v > 90.0 => RESOURCE_WARNING,
+        Some(_) => HEALTHY,
+        None => MUTED,
+    }
 }
 fn memory_colour(used: Option<f32>, total: Option<f32>) -> [u8; 4] {
     match (used, total) {
         (Some(u), Some(t)) if u.is_finite() && t.is_finite() && u >= 0.0 && t > 0.0 =>
             percentage_warning(Some(100.0 * u / t)),
-        _ => TEXT,
+        _ => MUTED,
     }
 }
 fn battery_colour(value: Option<u8>) -> [u8; 4] {
     match value {
         Some(0..=10) => RESOURCE_CRITICAL,
         Some(11..=20) => RESOURCE_WARNING,
-        _ => TEXT,
+        Some(_) => HEALTHY,
+        None => MUTED,
     }
 }
 
@@ -632,19 +705,20 @@ mod tests {
         assert_eq!(wrist_load_percent(Some(100.0)), "99%");
         assert_eq!(wrist_battery_percent(Some(100)), "99%");
         assert_eq!(load_percent(Some(100.0)), "100%");
-        assert_eq!(temperature_colour(Some(79.9)), TEXT);
+        assert_eq!(temperature_colour(Some(79.9)), HEALTHY);
         assert_eq!(temperature_colour(Some(80.0)), RESOURCE_WARNING);
         assert_eq!(temperature_colour(Some(89.9)), RESOURCE_WARNING);
         assert_eq!(temperature_colour(Some(90.0)), RESOURCE_CRITICAL);
         assert_eq!(temperature_colour(Some(120.0)), RESOURCE_CRITICAL);
-        assert_eq!(temperature_colour(None), TEXT);
+        assert_eq!(temperature_colour(None), MUTED);
+        assert_eq!(temperature_colour(Some(f32::NAN)), MUTED);
     }
     #[test]
     fn watch_footer_with_temperatures_fits_in_550_pixels() {
         let widths = wrist_bottom_widths();
         assert!(wrist_row_required(widths) <= WRIST_WIDTH as i32);
-        assert!(wrist_bottom_text_width("CPU 99% 99°") <= widths[1]);
-        assert!(wrist_bottom_text_width("GPU 99% 99°") <= widths[3]);
+        assert!(wrist_text_width_scaled("CPU 99% 99°", 53) <= widths[1]);
+        assert!(wrist_text_width_scaled("GPU 99% 99°", 53) <= widths[3]);
         let positions = wrist_row_positions(widths);
         assert_eq!(positions[0], 10);
         assert_eq!(positions[4] + widths[4], WRIST_WIDTH as i32 - 10);
@@ -834,22 +908,22 @@ mod tests {
         for drops in [None, Some(0), Some(9), Some(10), Some(999), Some(1000),
             Some(99999), Some(100000), Some(1000000), Some(1_000_000_000),
             Some(1_000_000_000_000), Some(u64::MAX)] {
-            assert!(wrist_text_width(&format_wrist_drops(drops)) <= top[3]);
+            assert!(wrist_text_width_scaled(&format_wrist_drops(drops), 58) <= top[3]);
         }
         for res in [None, Some(100), Some(150), Some(1000), Some(9999), Some(u16::MAX)] {
-            assert!(wrist_text_width(&format_wrist_resolution(res)) <= top[4]);
+            assert!(wrist_text_width_scaled(&format_wrist_resolution(res), 58) <= top[4]);
         }
         for mem in [(None,None), (Some(14.0),Some(16.0)),
             (Some(128.0),Some(256.0)), (Some(999.0),Some(999.0)),
             (Some(1024.0),Some(2048.0)),
             (Some(f32::MAX),Some(f32::MAX))] {
-            assert!(wrist_bottom_text_width(&format!("RAM {}", used_total_wrist(mem.0,mem.1))) <= bottom[2]);
-            assert!(wrist_bottom_text_width(&format!("VRA {}", used_total_wrist(mem.0,mem.1))) <= bottom[4]);
+            assert!(wrist_text_width_scaled(&format!("RAM {}", used_total_wrist(mem.0,mem.1)), 53) <= bottom[2]);
+            assert!(wrist_text_width_scaled(&format!("VRA {}", used_total_wrist(mem.0,mem.1)), 53) <= bottom[4]);
         }
         for ms in [None,Some(9.2),Some(99.9),Some(99.96),Some(100.0),
             Some(999.0),Some(999.9),Some(1000.0),Some(f32::MAX)] {
-            assert!(wrist_text_width(&format!("CPU {}",wrist_frame_time_text(ms))) <= top[1]);
-            assert!(wrist_text_width(&format!("GPU {}",wrist_frame_time_text(ms))) <= top[2]);
+            assert!(wrist_text_width_scaled(&format!("CPU {}",wrist_frame_time_text(ms)), 58) <= top[1]);
+            assert!(wrist_text_width_scaled(&format!("GPU {}",wrist_frame_time_text(ms)), 58) <= top[2]);
         }
     }
     #[test]
@@ -869,17 +943,24 @@ mod tests {
     }
     #[test]
     fn wrist_visible_gaps_are_even_for_short_and_long_values() {
-        // Test rendered widths, not only the longest reserved values. Every
-        // visible gap must differ by at most one pixel, even with short DROP.
+        // Keep at least five pixels between fields while using the largest
+        // readable horizontal scale that fits the displayed values.
         for row in [
-            vec!["FPS 71", "CPU 03.3ms", "GPU 10.2ms", "DROP 1", "RES 250%", "16:48"],
-            vec!["FPS 999+", "CPU 999+ms", "GPU 999+ms", "DROP 999M", "RES 9999%", "23:59"],
-            vec!["BAT 18%", "CPU 21% 50°", "RAM 14/31", "GPU 74% 58°", "VRA 11/16"],
-            vec!["BAT 99%", "CPU 99% 99°", "RAM 999T/999T", "GPU 99% 99°", "VRA 999T/999T"],
+            vec!["FPS 71/90Hz", "CPU 03.3ms", "GPU 10.2ms", "DROP 1", "RES 250%", "16:48"],
+            vec!["FPS 999+/240Hz", "CPU 999+ms", "GPU 999+ms", "DROP 999P", "RES 9999+", "23:59"],
+            vec!["BAT H18/L09/R79%", "CPU 21% 50°", "RAM 14/31", "GPU 74% 58°", "VRA 11/16"],
+            vec!["BAT H99/L99/R99%", "CPU 99% 99°", "RAM 999T/999T", "GPU 99% 99°", "VRA 999T/999T"],
         ] {
-            let widths: Vec<i32> = row.iter().map(|text| if row.len() == 5 { wrist_bottom_text_width(text) }
-                else { wrist_text_width(text) }).collect();
-            // Use five- or six-field arrays to exercise the actual layout.
+            let preferred = if row.len() == 5 { 63 } else { 70 };
+            // Same scale-search equation as wrist_row_scale, using complete
+            // field text because run colour boundaries do not affect widths.
+            let scale = (50..=preferred).rev().find(|&scale| {
+                let widths: Vec<i32> = row.iter().map(|s| wrist_text_width_scaled(s, scale)).collect();
+                widths.iter().sum::<i32>() + 20 + WRIST_ROW_GAP * (row.len() as i32 - 1)
+                    <= WRIST_WIDTH as i32
+            }).unwrap();
+            assert!((50..=preferred).contains(&scale));
+            let widths: Vec<i32> = row.iter().map(|s| wrist_text_width_scaled(s, scale)).collect();
             let positions = if widths.len() == 6 {
                 wrist_row_positions(std::array::from_fn::<_, 6, _>(|i| widths[i])).to_vec()
             } else {
@@ -895,6 +976,41 @@ mod tests {
         }
     }
     #[test]
+    fn watch_adapts_width_but_preserves_font_height() {
+        let top_a = [("FPS 72/90Hz", TEXT)];
+        let top_b = [("CPU 08.3ms", TEXT)];
+        let top_c = [("GPU 09.1ms", TEXT)];
+        let top_d = [("DROP 0", TEXT)];
+        let top_e = [("RES 150%", TEXT)];
+        let top_f = [("21:45", TEXT)];
+        let normal_top = [&top_a[..], &top_b[..], &top_c[..], &top_d[..], &top_e[..], &top_f[..]];
+        assert_eq!(wrist_row_scale(normal_top, 70), 70);
+        let bottom_a = [("BAT H99/L85/R72%", TEXT)];
+        let bottom_b = [("CPU 21% 50°", TEXT)];
+        let bottom_c = [("RAM 14/32", TEXT)];
+        let bottom_d = [("GPU 74% 58°", TEXT)];
+        let bottom_e = [("VRA 12/16", TEXT)];
+        let normal_bottom = [&bottom_a[..], &bottom_b[..], &bottom_c[..],
+            &bottom_d[..], &bottom_e[..]];
+        let scale = wrist_row_scale(normal_bottom, 63);
+        assert!((50..=63).contains(&scale));
+        let widths = normal_bottom.map(|runs| wrist_runs_width(runs, scale));
+        assert!(wrist_row_required(widths) <= WRIST_WIDTH as i32);
+        // The raster always draws each of the eight bitmap rows at 2 pixels.
+        assert_eq!(WRIST_TOP_Y + 16, 32);
+        assert_eq!(WRIST_BOTTOM_Y + 16, 146);
+    }
+    #[test]
+    fn watch_can_render_three_independent_battery_warnings() {
+        let mut renderer = Renderer::for_mode(Mode::Left);
+        let devices = DeviceStats { hmd: Some(99), left: Some(15), right: Some(5),
+            ..DeviceStats::default() };
+        renderer.draw(&FrameMonitor::new(), &HardwareStats::default(), &devices, 90.0);
+        for colour in [TEXT, HEALTHY, RESOURCE_WARNING, RESOURCE_CRITICAL] {
+            assert!(renderer.pixels().chunks_exact(4).any(|pixel| pixel == colour));
+        }
+    }
+    #[test]
     fn wrist_fps_always_rounds_up() {
         assert_eq!(wrist_fps_text(Some(71.0)), "FPS 71");
         assert_eq!(wrist_fps_text(Some(71.01)), "FPS 72");
@@ -904,24 +1020,55 @@ mod tests {
         assert_eq!(wrist_fps_text(None), "FPS --");
         assert_eq!(wrist_fps_text(Some(f32::NAN)), "FPS --");
     }
+
+    #[test]
+    fn watch_fps_and_battery_colours_are_independent() {
+        assert_eq!(wrist_fps_colour(Some(90.0), 90.0), HEALTHY);
+        assert_eq!(wrist_fps_colour(Some(87.0), 90.0), HEALTHY);
+        assert_eq!(wrist_fps_colour(Some(80.0), 90.0), RESOURCE_WARNING);
+        assert_eq!(wrist_fps_colour(Some(45.0), 90.0), RESOURCE_CRITICAL);
+        assert_eq!(wrist_fps_colour(None, 90.0), MUTED);
+        assert_eq!(wrist_frametime_colour(Some(10.0), 11.11), HEALTHY);
+        assert_eq!(wrist_frametime_colour(Some(12.0), 11.11), RESOURCE_WARNING);
+        assert_eq!(wrist_frametime_colour(Some(24.0), 11.11), RESOURCE_CRITICAL);
+        assert_eq!(wrist_frametime_colour(None, 11.11), MUTED);
+        assert_eq!(wrist_drop_colour(Some(0)), HEALTHY);
+        assert_eq!(wrist_drop_colour(Some(1)), RESOURCE_CRITICAL);
+        assert_eq!(wrist_drop_colour(None), MUTED);
+        assert_eq!(battery_colour(Some(21)), HEALTHY);
+        assert_eq!(battery_colour(Some(20)), RESOURCE_WARNING);
+        assert_eq!(battery_colour(Some(10)), RESOURCE_CRITICAL);
+    }
+    #[test]
+    fn watch_coloured_runs_do_not_change_text_widths() {
+        let top = [("FPS ", TEXT), ("72", HEALTHY), ("/90Hz", TEXT)];
+        assert_eq!(wrist_runs_width(&top, 70), wrist_text_width("FPS 72/90Hz"));
+        let battery = [("BAT H", TEXT), ("99", HEALTHY), ("/L", TEXT),
+            ("15", RESOURCE_WARNING), ("/R", TEXT), ("05", RESOURCE_CRITICAL),
+            ("%", TEXT)];
+        assert_eq!(wrist_runs_width(&battery, 63), wrist_bottom_text_width("BAT H99/L15/R05%"));
+        assert!(wrist_row_required(wrist_top_widths()) <= WRIST_WIDTH as i32);
+        assert!(wrist_row_required(wrist_bottom_widths()) <= WRIST_WIDTH as i32);
+    }
     #[test]
     fn warning_colours_respect_exact_thresholds() {
-        assert_eq!(usage_colour(Some(84.99)), TEXT);
-        assert_eq!(usage_colour(Some(85.0)), RESOURCE_WARNING);
-        assert_eq!(usage_colour(Some(94.99)), RESOURCE_WARNING);
-        assert_eq!(usage_colour(Some(95.0)), RESOURCE_CRITICAL);
-        assert_eq!(usage_colour(None), TEXT);
-        assert_eq!(usage_colour(Some(f32::NAN)), TEXT);
-        assert_eq!(memory_colour(Some(84.9),Some(100.0)), TEXT);
+        assert_eq!(usage_colour(Some(84.99)), HEALTHY);
+        assert_eq!(usage_colour(Some(90.0)), HEALTHY);
+        assert_eq!(usage_colour(Some(90.01)), RESOURCE_WARNING);
+        assert_eq!(usage_colour(Some(95.0)), RESOURCE_WARNING);
+        assert_eq!(usage_colour(Some(95.01)), RESOURCE_CRITICAL);
+        assert_eq!(usage_colour(None), MUTED);
+        assert_eq!(usage_colour(Some(f32::NAN)), MUTED);
+        assert_eq!(memory_colour(Some(84.9),Some(100.0)), HEALTHY);
         assert_eq!(memory_colour(Some(85.0),Some(100.0)), RESOURCE_WARNING);
         assert_eq!(memory_colour(Some(95.0),Some(100.0)), RESOURCE_CRITICAL);
-        assert_eq!(memory_colour(Some(100.0),Some(0.0)), TEXT);
-        assert_eq!(battery_colour(Some(21)), TEXT);
+        assert_eq!(memory_colour(Some(100.0),Some(0.0)), MUTED);
+        assert_eq!(battery_colour(Some(21)), HEALTHY);
         assert_eq!(battery_colour(Some(20)), RESOURCE_WARNING);
         assert_eq!(battery_colour(Some(11)), RESOURCE_WARNING);
         assert_eq!(battery_colour(Some(10)), RESOURCE_CRITICAL);
         assert_eq!(battery_colour(Some(0)), RESOURCE_CRITICAL);
-        assert_eq!(battery_colour(None), TEXT);
+        assert_eq!(battery_colour(None), MUTED);
     }
     #[test]
     fn frame_time_labels_follow_the_same_budget_colours_as_graphs() {

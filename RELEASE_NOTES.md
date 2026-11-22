@@ -1,3 +1,13 @@
+# vrperf v1.38.0 (2026-11-22)
+
+- In watch mode, combine measured FPS and target refresh rate (for example `FPS 72/90Hz`) and show separate headset, left-controller and right-controller battery levels (`BAT H99/L85/R72%`).
+- Use white for labels, fixed units, target rate and memory totals; green for normal changing values, orange/red for warning levels and grey for unavailable measurements. Each battery and CPU/GPU temperature retains its own warning colour.
+- Change CPU/GPU utilisation warning thresholds to orange above 90% and red above 95%. Retain RAM/VRAM warnings at 85%/95%, battery warnings at 20%/10%, and temperature warnings at 80°C/90°C.
+- Colour the watch's measured FPS orange below 95% of target and red below 80%; use orange for frame time above budget and red above twice budget; show any nonzero cumulative DROP count in red.
+- Keep the watch at 550 × 160, preserve 16-pixel-high text and graph colours, and document the revised status rules.
+
+---
+
 # vrperf v1.37.0 (2026-11-22)
 
 - Reorganise the main README around installation, first use, watch calibration, updating and a brief display guide.

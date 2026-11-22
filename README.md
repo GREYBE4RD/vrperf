@@ -101,11 +101,13 @@ The graph shows **PC-side CPU and GPU frame times** against the headset's frame-
 
 | Display | Meaning |
 | --- | --- |
-| `FPS`, `CPU ms`, `GPU ms` | Frame rate and CPU/GPU frame time |
+| `FPS`, `CPU ms`, `GPU ms` | Frame rate versus target Hz, and CPU/GPU frame time |
 | `DROP`, `RES` | SteamVR dropped frames and combined resolution percentage |
-| `BAT` | Headset battery level |
+| `BAT H/L/R` | Headset, left-controller and right-controller batteries |
 | `CPU`, `GPU` | Utilisation and temperature, where sensors are available |
 | `RAM`, `VRA` | Used / total system RAM and video memory |
+
+The watch shows measured FPS beside its target rate, for example `FPS 72/90Hz`, and all three batteries as `BAT H99/L85/R72%`. White text identifies labels, units and fixed totals; green indicates normal measured values. Orange/red marks thresholds, and grey indicates missing values. CPU/GPU graph traces keep their separate colours.
 
 The watch retains a compact **550 × 160** layout. It caps displayed temperatures at **99°** and battery/CPU/GPU percentages at **99%**. Actual values still determine warning colours. Orange temperature warnings start at **80°C** and red at **90°C**. Unsupported sensors display `--°`.
 
