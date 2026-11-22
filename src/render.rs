@@ -468,7 +468,7 @@ fn top_row_positions() -> [i32; 7] {
 // every field reaches its widest display value at the same time.
 #[cfg(test)]
 fn wrist_top_widths() -> [i32; 6] {
-    ["FPS 999+/240Hz", "CPU 999+ms", "GPU 999+ms", "DROP 999P", "RES 9999+", "23:59"]
+    ["FPS 999+/240Hz", "CPU 999+ms", "GPU 999+ms", "DROP 999P", "RES 9999%", "23:59"]
         .map(|text| wrist_text_width_scaled(text, 58))
 }
 
@@ -947,7 +947,7 @@ mod tests {
         // readable horizontal scale that fits the displayed values.
         for row in [
             vec!["FPS 71/90Hz", "CPU 03.3ms", "GPU 10.2ms", "DROP 1", "RES 250%", "16:48"],
-            vec!["FPS 999+/240Hz", "CPU 999+ms", "GPU 999+ms", "DROP 999P", "RES 9999+", "23:59"],
+            vec!["FPS 999+/240Hz", "CPU 999+ms", "GPU 999+ms", "DROP 999P", "RES 9999%", "23:59"],
             vec!["BAT H18/L09/R79%", "CPU 21% 50°", "RAM 14/31", "GPU 74% 58°", "VRA 11/16"],
             vec!["BAT H99/L99/R99%", "CPU 99% 99°", "RAM 999T/999T", "GPU 99% 99°", "VRA 999T/999T"],
         ] {
