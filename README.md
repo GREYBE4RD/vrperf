@@ -4,17 +4,19 @@ vrperf is a lightweight, native Linux performance overlay for SteamVR, written i
 
 Developed and tested with Arch Linux, SteamVR, Steam Frame and an AMD Radeon RX 9070 XT. Support for other hardware is best effort.
 
+**Source version:** `1.39.0`. Run `vrperf --version` to check the installed binary. Published versions are identified by their Git tags.
+
 ![vrperf performance overlay](screenshots/vrperf.jpg)
 
 ## Install
 
 ### Download a Linux release
 
-1. Download the latest `linux-x86_64.tar.gz` from [GitHub Releases](https://github.com/GREYBE4RD/vrperf/releases).
-2. Extract it. In a directory containing **one** downloaded vrperf release archive, run:
+1. Download `vrperf.tar.gz` from the [latest GitHub release](https://github.com/GREYBE4RD/vrperf/releases/latest).
+2. Extract it in the download directory:
 
    ```bash
-   tar -xzf vrperf-v*-linux-x86_64.tar.gz
+   tar -xzf vrperf.tar.gz
    ```
 
 3. **Start SteamVR**, then install the extracted executable:

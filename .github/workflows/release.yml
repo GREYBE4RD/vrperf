@@ -1,4 +1,4 @@
-name: Publish Linux binary release
+name: Publish vrperf release
 
 on:
   push:
@@ -38,15 +38,16 @@ jobs:
         run: echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
       - name: Package binary
         run: |
-          tar -czf "vrperf-${RELEASE_TAG}-linux-x86_64.tar.gz" -C target/release vrperf
-          sha256sum "vrperf-${RELEASE_TAG}-linux-x86_64.tar.gz" > "vrperf-${RELEASE_TAG}-linux-x86_64.tar.gz.sha256"
+          tar -czf "vrperf.tar.gz" -C target/release vrperf
+          sha256sum "vrperf.tar.gz" > "vrperf.tar.gz.sha256"
       - name: Create release or attach binary to existing release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ARCHIVE="vrperf-${RELEASE_TAG}-linux-x86_64.tar.gz"
+          ARCHIVE="vrperf.tar.gz"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "$ARCHIVE" "$ARCHIVE.sha256" --clobber
+            gh release edit "$RELEASE_TAG" --title "vrperf"
           else
-            gh release create "$RELEASE_TAG" "$ARCHIVE" "$ARCHIVE.sha256" --title "vrperf $RELEASE_TAG" --notes-file RELEASE_NOTES.md --verify-tag
+            gh release create "$RELEASE_TAG" "$ARCHIVE" "$ARCHIVE.sha256" --title "vrperf" --notes-file RELEASE_NOTES.md --verify-tag
           fi

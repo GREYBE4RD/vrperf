@@ -1,3 +1,12 @@
+# vrperf v1.39.0 (2026-11-22)
+
+- Use the release title `vrperf` without a version suffix. Keep versioned Git tags to identify each release.
+- Use `vrperf.tar.gz` and `vrperf.tar.gz.sha256` as the Linux release asset filenames. The archive still contains the `vrperf` executable.
+- Update installation and checksum instructions and document `vrperf --version`. Version metadata is updated to 1.39.0.
+- No changes to overlay behaviour, performance monitoring or saved settings.
+
+---
+
 # vrperf v1.38.0 (2026-11-22)
 
 - In watch mode, combine measured FPS and target refresh rate (for example `FPS 72/90Hz`) and show separate headset, left-controller and right-controller battery levels (`BAT H99/L85/R72%`).

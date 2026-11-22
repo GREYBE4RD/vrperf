@@ -50,7 +50,7 @@ Stop this test process before installation. Running two instances at once can ca
 ./target/release/vrperf --install
 ```
 
-For a downloaded release, extract the Linux archive, then run `./vrperf --install` from the extracted executable's directory.
+For a downloaded release, extract `vrperf.tar.gz`, then run `./vrperf --install` from the extracted executable's directory.
 
 The installer:
 
@@ -76,10 +76,10 @@ A ZIP download is not a Git checkout, so `git pull` does not work inside an extr
 GitHub Releases provides a `.sha256` checksum file alongside the Linux archive. In the download directory, you can verify it before extracting:
 
 ```bash
-sha256sum -c vrperf-v*-linux-x86_64.tar.gz.sha256
+sha256sum -c vrperf.tar.gz.sha256
 ```
 
-This assumes the directory contains only one version's matching archive and checksum.
+The archive and checksum filenames stay the same across releases. If you keep older downloads, put each release in a separate directory to avoid replacing its files.
 
 ## Uninstall
 
