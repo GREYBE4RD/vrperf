@@ -1,3 +1,12 @@
+# vrperf v1.37.0 (2026-11-22)
+
+- Reorganise the main README around installation, first use, watch calibration, updating and a brief display guide.
+- Move detailed source-build instructions, calibration behaviour, GPU/sensor limitations, frame-time graphs, troubleshooting, command-line options and implementation notes to linked pages under `docs/`.
+- Link to those guides beside the relevant user steps; keep both README screenshots and the user-facing setup instructions.
+- Keep runtime behaviour, saved settings and SteamVR integration unchanged. Documentation-only changes apart from the version number.
+
+---
+
 # vrperf v1.36.0 (2026-11-16)
 
 - Make uncalibrated watches easy to locate: show the panel 12 cm above the tracked controller in standing space, continually oriented toward the headset until manual grip placement begins or the calibration is saved. Once grabbed, hand calibration takes over and the panel stops tracking headset orientation.
