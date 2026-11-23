@@ -141,7 +141,7 @@ impl Renderer {
         let latest = monitor.latest();
         let fps = monitor.current_fps(hz);
         let fps_text = wrist_fps_text(fps);
-        let fps_value = fps_text.strip_prefix("FPS ").unwrap_or(&fps_text);
+        let fps_value = fps_text.strip_prefix("FPS:").unwrap_or(&fps_text);
         let hz_text = if hz.is_finite() && hz > 0.0 { format!("/{hz:.0}Hz") }
             else { "/--Hz".into() };
         let cpu_ms = wrist_frame_time_text(latest.map(|f| f.cpu_ms));
@@ -150,10 +150,10 @@ impl Renderer {
         let gpu_ms_value = gpu_ms.strip_suffix("ms").unwrap_or(&gpu_ms);
         let drops_value = monitor.is_active().then_some(monitor.dropped);
         let drops = format_wrist_drops(drops_value);
-        let drops_text = drops.strip_prefix("DROP ").unwrap_or(&drops);
+        let drops_text = drops.strip_prefix("DROP:").unwrap_or(&drops);
         let resolution_value = devices.display_resolution(monitor.is_active());
         let resolution = format_wrist_resolution(resolution_value);
-        let resolution_text = resolution.strip_prefix("RES ").unwrap_or(&resolution);
+        let resolution_text = resolution.strip_prefix("RES:").unwrap_or(&resolution);
         let (resolution_number, resolution_unit) = match resolution_text.strip_suffix('%') {
             Some(number) => (number, "%"), None => (resolution_text, ""),
         };
@@ -161,13 +161,13 @@ impl Renderer {
         // Short fixed-width tokens remain white; measurements carry their own
         // independent green/orange/red state. The Hz reference stays white.
         let top: [&[WristRun<'_>]; 6] = [
-            &[("FPS ", TEXT), (fps_value, wrist_fps_colour(fps, hz)), (&hz_text, TEXT)],
-            &[("CPU ", TEXT), (cpu_ms_value,
+            &[("FPS:", TEXT), (fps_value, wrist_fps_colour(fps, hz)), (&hz_text, TEXT)],
+            &[("CPU:", TEXT), (cpu_ms_value,
                 wrist_frametime_colour(latest.map(|f| f.cpu_ms), budget)), ("ms", TEXT)],
-            &[("GPU ", TEXT), (gpu_ms_value,
+            &[("GPU:", TEXT), (gpu_ms_value,
                 wrist_frametime_colour(latest.map(|f| f.gpu_ms), budget)), ("ms", TEXT)],
-            &[("DROP ", TEXT), (drops_text, wrist_drop_colour(drops_value))],
-            &[("RES ", TEXT), (resolution_number,
+            &[("DROP:", TEXT), (drops_text, wrist_drop_colour(drops_value, monitor.dropped_recently()))],
+            &[("RES:", TEXT), (resolution_number,
                 if resolution_value.is_some() { HEALTHY } else { MUTED }),
                 (resolution_unit, TEXT)],
             &[(clock.as_str(), TEXT)],
@@ -201,16 +201,16 @@ impl Renderer {
         let (ram_used, ram_total) = ram.split_once('/').unwrap_or((&ram, "--"));
         let (vram_used, vram_total) = vram.split_once('/').unwrap_or((&vram, "--"));
         let bottom: [&[WristRun<'_>]; 5] = [
-            &[("BAT H", TEXT), (hmd_number, battery_colour(devices.hmd)),
+            &[("BAT:H", TEXT), (hmd_number, battery_colour(devices.hmd)),
                 ("/L", TEXT), (left_number, battery_colour(devices.left)),
                 ("/R", TEXT), (right_number, battery_colour(devices.right)), ("%", TEXT)],
-            &[("CPU ", TEXT), (cpu_usage_value, usage_colour(hw.cpu_load)), ("% ", TEXT),
+            &[("CPU:", TEXT), (cpu_usage_value, usage_colour(hw.cpu_load)), ("%", TEXT),
                 (cpu_temp_value, temperature_colour(hw.cpu_temp_c)), ("°", TEXT)],
-            &[("RAM ", TEXT), (ram_used, memory_colour(hw.ram_used_gib, hw.ram_total_gib)),
+            &[("RAM:", TEXT), (ram_used, memory_colour(hw.ram_used_gib, hw.ram_total_gib)),
                 ("/", TEXT), (ram_total, if ram_total == "--" { MUTED } else { TEXT })],
-            &[("GPU ", TEXT), (gpu_usage_value, usage_colour(hw.gpu_load)), ("% ", TEXT),
+            &[("GPU:", TEXT), (gpu_usage_value, usage_colour(hw.gpu_load)), ("%", TEXT),
                 (gpu_temp_value, temperature_colour(hw.gpu_temp_c)), ("°", TEXT)],
-            &[("VRA ", TEXT), (vram_used, memory_colour(hw.vram_used_gib, hw.vram_total_gib)),
+            &[("VRA:", TEXT), (vram_used, memory_colour(hw.vram_used_gib, hw.vram_total_gib)),
                 ("/", TEXT), (vram_total, if vram_total == "--" { MUTED } else { TEXT })],
         ];
         let bottom_scale = wrist_row_scale(bottom, 66);
@@ -468,13 +468,13 @@ fn top_row_positions() -> [i32; 7] {
 // every field reaches its widest display value at the same time.
 #[cfg(test)]
 fn wrist_top_widths() -> [i32; 6] {
-    ["FPS 999+/240Hz", "CPU 999+ms", "GPU 999+ms", "DROP 999P", "RES 9999%", "23:59"]
+    ["FPS:999+/240Hz", "CPU:999+ms", "GPU:999+ms", "DROP:999P", "RES:9999%", "23:59"]
         .map(|text| wrist_text_width_scaled(text, 60))
 }
 
 #[cfg(test)]
 fn wrist_bottom_widths() -> [i32; 5] {
-    ["BAT H99/L99/R99%", "CPU 99% 99°", "RAM 999T/999T", "GPU 99% 99°", "VRA 999T/999T"]
+    ["BAT:H99/L99/R99%", "CPU:99%99°", "RAM:999T/999T", "GPU:99%99°", "VRA:999T/999T"]
         .map(|text| wrist_text_width_scaled(text, 56))
 }
 
@@ -506,13 +506,13 @@ fn wrist_row_positions<const N: usize>(widths: [i32; N]) -> [i32; N] {
 
 
 // Always round displayed watch FPS up to a whole number, without exceeding
-// the maximum reserved "FPS 999+" field width.
+// the maximum reserved "FPS:999+" field width.
 fn wrist_fps_text(value: Option<f32>) -> String {
     match value {
         Some(fps) if fps.is_finite() && (0.0..=999.0).contains(&fps) =>
-            format!("FPS {:.0}", fps.ceil()),
-        Some(fps) if fps.is_finite() && fps > 999.0 => "FPS 999+".into(),
-        _ => "FPS --".into(),
+            format!("FPS:{:.0}", fps.ceil()),
+        Some(fps) if fps.is_finite() && fps > 999.0 => "FPS:999+".into(),
+        _ => "FPS:--".into(),
     }
 }
 
@@ -521,15 +521,15 @@ fn wrist_fps_text(value: Option<f32>) -> String {
 // from moving the following fields, even for very large counters.
 fn format_wrist_drops(drops: Option<u64>) -> String {
     match drops {
-        None => "DROP --".into(),
-        Some(n) if n < 1_000 => format!("DROP {n}"),
-        Some(n) if n < 1_000_000 => format!("DROP {}K", n / 1_000),
-        Some(n) if n < 1_000_000_000 => format!("DROP {}M", n / 1_000_000),
-        Some(n) if n < 1_000_000_000_000 => format!("DROP {}B", n / 1_000_000_000),
-        Some(n) if n < 1_000_000_000_000_000 => format!("DROP {}T", n / 1_000_000_000_000),
+        None => "DROP:--".into(),
+        Some(n) if n < 1_000 => format!("DROP:{n}"),
+        Some(n) if n < 1_000_000 => format!("DROP:{}K", n / 1_000),
+        Some(n) if n < 1_000_000_000 => format!("DROP:{}M", n / 1_000_000),
+        Some(n) if n < 1_000_000_000_000 => format!("DROP:{}B", n / 1_000_000_000),
+        Some(n) if n < 1_000_000_000_000_000 => format!("DROP:{}T", n / 1_000_000_000_000),
         Some(n) if n < 1_000_000_000_000_000_000 =>
-            format!("DROP {}P", n / 1_000_000_000_000_000),
-        Some(_) => "DROP 1E+".into(),
+            format!("DROP:{}P", n / 1_000_000_000_000_000),
+        Some(_) => "DROP:1E+".into(),
     }
 }
 
@@ -550,9 +550,9 @@ fn wrist_frame_time_text(value: Option<f32>) -> String {
 // Display percentages up to 9999 without changing the reserved RES slot.
 fn format_wrist_resolution(value: Option<u16>) -> String {
     match value {
-        Some(v) if v <= 9999 => format!("RES {v}%"),
-        Some(_) => "RES 9999+".into(),
-        None => "RES --%".into(),
+        Some(v) if v <= 9999 => format!("RES:{v}%"),
+        Some(_) => "RES:9999+".into(),
+        None => "RES:--%".into(),
     }
 }
 
@@ -646,8 +646,12 @@ fn wrist_frametime_colour(ms: Option<f32>, budget: f32) -> [u8; 4] {
         _ => MUTED,
     }
 }
-fn wrist_drop_colour(drops: Option<u64>) -> [u8; 4] {
-    match drops { Some(0) => HEALTHY, Some(_) => RESOURCE_CRITICAL, None => MUTED }
+fn wrist_drop_colour(drops: Option<u64>, dropped_recently: bool) -> [u8; 4] {
+    match drops {
+        Some(_) if dropped_recently => RESOURCE_CRITICAL,
+        Some(_) => HEALTHY,
+        None => MUTED,
+    }
 }
 
 fn percentage_warning(value: Option<f32>) -> [u8; 4] {
@@ -717,8 +721,8 @@ mod tests {
     fn watch_footer_with_temperatures_fits_in_575_pixels() {
         let widths = wrist_bottom_widths();
         assert!(wrist_row_required(widths) <= WRIST_WIDTH as i32);
-        assert!(wrist_text_width_scaled("CPU 99% 99°", 56) <= widths[1]);
-        assert!(wrist_text_width_scaled("GPU 99% 99°", 56) <= widths[3]);
+        assert!(wrist_text_width_scaled("CPU:99%99°", 56) <= widths[1]);
+        assert!(wrist_text_width_scaled("GPU:99%99°", 56) <= widths[3]);
         let positions = wrist_row_positions(widths);
         assert_eq!(positions[0], 10);
         assert_eq!(positions[4] + widths[4], WRIST_WIDTH as i32 - 10);
@@ -917,13 +921,13 @@ mod tests {
             (Some(128.0),Some(256.0)), (Some(999.0),Some(999.0)),
             (Some(1024.0),Some(2048.0)),
             (Some(f32::MAX),Some(f32::MAX))] {
-            assert!(wrist_text_width_scaled(&format!("RAM {}", used_total_wrist(mem.0,mem.1)), 56) <= bottom[2]);
-            assert!(wrist_text_width_scaled(&format!("VRA {}", used_total_wrist(mem.0,mem.1)), 56) <= bottom[4]);
+            assert!(wrist_text_width_scaled(&format!("RAM:{}", used_total_wrist(mem.0,mem.1)), 56) <= bottom[2]);
+            assert!(wrist_text_width_scaled(&format!("VRA:{}", used_total_wrist(mem.0,mem.1)), 56) <= bottom[4]);
         }
         for ms in [None,Some(9.2),Some(99.9),Some(99.96),Some(100.0),
             Some(999.0),Some(999.9),Some(1000.0),Some(f32::MAX)] {
-            assert!(wrist_text_width_scaled(&format!("CPU {}",wrist_frame_time_text(ms)), 60) <= top[1]);
-            assert!(wrist_text_width_scaled(&format!("GPU {}",wrist_frame_time_text(ms)), 60) <= top[2]);
+            assert!(wrist_text_width_scaled(&format!("CPU:{}",wrist_frame_time_text(ms)), 60) <= top[1]);
+            assert!(wrist_text_width_scaled(&format!("GPU:{}",wrist_frame_time_text(ms)), 60) <= top[2]);
         }
     }
     #[test]
@@ -932,9 +936,9 @@ mod tests {
         assert_eq!(wrist_frame_time_text(Some(99.96)), "100ms");
         assert_eq!(wrist_frame_time_text(Some(100.1)), "100ms");
         assert_eq!(wrist_frame_time_text(Some(1000.0)), "999+ms");
-        assert_eq!(format_wrist_drops(Some(9)), "DROP 9");
-        assert_eq!(format_wrist_drops(Some(10)), "DROP 10");
-        assert_eq!(format_wrist_drops(Some(1000)), "DROP 1K");
+        assert_eq!(format_wrist_drops(Some(9)), "DROP:9");
+        assert_eq!(format_wrist_drops(Some(10)), "DROP:10");
+        assert_eq!(format_wrist_drops(Some(1000)), "DROP:1K");
         let top = wrist_top_widths();
         let positions = wrist_row_positions(top);
         assert!(wrist_row_required(top) <= WRIST_WIDTH as i32);
@@ -946,10 +950,10 @@ mod tests {
         // Keep at least five pixels between fields while using the largest
         // readable horizontal scale that fits the displayed values.
         for row in [
-            vec!["FPS 71/90Hz", "CPU 03.3ms", "GPU 10.2ms", "DROP 1", "RES 250%", "16:48"],
-            vec!["FPS 999+/240Hz", "CPU 999+ms", "GPU 999+ms", "DROP 999P", "RES 9999%", "23:59"],
-            vec!["BAT H18/L09/R79%", "CPU 21% 50°", "RAM 14/31", "GPU 74% 58°", "VRA 11/16"],
-            vec!["BAT H99/L99/R99%", "CPU 99% 99°", "RAM 999T/999T", "GPU 99% 99°", "VRA 999T/999T"],
+            vec!["FPS:71/90Hz", "CPU:03.3ms", "GPU:10.2ms", "DROP:1", "RES:250%", "16:48"],
+            vec!["FPS:999+/240Hz", "CPU:999+ms", "GPU:999+ms", "DROP:999P", "RES:9999%", "23:59"],
+            vec!["BAT:H18/L09/R79%", "CPU:21%50°", "RAM:14/31", "GPU:74%58°", "VRA:11/16"],
+            vec!["BAT:H99/L99/R99%", "CPU:99%99°", "RAM:999T/999T", "GPU:99%99°", "VRA:999T/999T"],
         ] {
             let preferred = if row.len() == 5 { 66 } else { 70 };
             // Same scale-search equation as wrist_row_scale, using complete
@@ -977,19 +981,19 @@ mod tests {
     }
     #[test]
     fn watch_adapts_width_but_preserves_font_height() {
-        let top_a = [("FPS 72/90Hz", TEXT)];
-        let top_b = [("CPU 08.3ms", TEXT)];
-        let top_c = [("GPU 09.1ms", TEXT)];
-        let top_d = [("DROP 0", TEXT)];
-        let top_e = [("RES 150%", TEXT)];
+        let top_a = [("FPS:72/90Hz", TEXT)];
+        let top_b = [("CPU:08.3ms", TEXT)];
+        let top_c = [("GPU:09.1ms", TEXT)];
+        let top_d = [("DROP:0", TEXT)];
+        let top_e = [("RES:150%", TEXT)];
         let top_f = [("21:45", TEXT)];
         let normal_top = [&top_a[..], &top_b[..], &top_c[..], &top_d[..], &top_e[..], &top_f[..]];
         assert_eq!(wrist_row_scale(normal_top, 70), 70);
-        let bottom_a = [("BAT H99/L85/R72%", TEXT)];
-        let bottom_b = [("CPU 21% 50°", TEXT)];
-        let bottom_c = [("RAM 14/32", TEXT)];
-        let bottom_d = [("GPU 74% 58°", TEXT)];
-        let bottom_e = [("VRA 12/16", TEXT)];
+        let bottom_a = [("BAT:H99/L85/R72%", TEXT)];
+        let bottom_b = [("CPU:21%50°", TEXT)];
+        let bottom_c = [("RAM:14/32", TEXT)];
+        let bottom_d = [("GPU:74%58°", TEXT)];
+        let bottom_e = [("VRA:12/16", TEXT)];
         let normal_bottom = [&bottom_a[..], &bottom_b[..], &bottom_c[..],
             &bottom_d[..], &bottom_e[..]];
         let scale = wrist_row_scale(normal_bottom, 66);
@@ -1019,13 +1023,13 @@ mod tests {
     }
     #[test]
     fn wrist_fps_always_rounds_up() {
-        assert_eq!(wrist_fps_text(Some(71.0)), "FPS 71");
-        assert_eq!(wrist_fps_text(Some(71.01)), "FPS 72");
-        assert_eq!(wrist_fps_text(Some(70.9)), "FPS 71");
-        assert_eq!(wrist_fps_text(Some(999.0)), "FPS 999");
-        assert_eq!(wrist_fps_text(Some(999.1)), "FPS 999+");
-        assert_eq!(wrist_fps_text(None), "FPS --");
-        assert_eq!(wrist_fps_text(Some(f32::NAN)), "FPS --");
+        assert_eq!(wrist_fps_text(Some(71.0)), "FPS:71");
+        assert_eq!(wrist_fps_text(Some(71.01)), "FPS:72");
+        assert_eq!(wrist_fps_text(Some(70.9)), "FPS:71");
+        assert_eq!(wrist_fps_text(Some(999.0)), "FPS:999");
+        assert_eq!(wrist_fps_text(Some(999.1)), "FPS:999+");
+        assert_eq!(wrist_fps_text(None), "FPS:--");
+        assert_eq!(wrist_fps_text(Some(f32::NAN)), "FPS:--");
     }
 
     #[test]
@@ -1039,21 +1043,23 @@ mod tests {
         assert_eq!(wrist_frametime_colour(Some(12.0), 11.11), RESOURCE_WARNING);
         assert_eq!(wrist_frametime_colour(Some(24.0), 11.11), RESOURCE_CRITICAL);
         assert_eq!(wrist_frametime_colour(None, 11.11), MUTED);
-        assert_eq!(wrist_drop_colour(Some(0)), HEALTHY);
-        assert_eq!(wrist_drop_colour(Some(1)), RESOURCE_CRITICAL);
-        assert_eq!(wrist_drop_colour(None), MUTED);
+        assert_eq!(wrist_drop_colour(Some(0), false), HEALTHY);
+        assert_eq!(wrist_drop_colour(Some(1), true), RESOURCE_CRITICAL);
+        assert_eq!(wrist_drop_colour(Some(12), false), HEALTHY);
+        assert_eq!(wrist_drop_colour(Some(12), true), RESOURCE_CRITICAL);
+        assert_eq!(wrist_drop_colour(None, false), MUTED);
         assert_eq!(battery_colour(Some(21)), HEALTHY);
         assert_eq!(battery_colour(Some(20)), RESOURCE_WARNING);
         assert_eq!(battery_colour(Some(10)), RESOURCE_CRITICAL);
     }
     #[test]
     fn watch_coloured_runs_do_not_change_text_widths() {
-        let top = [("FPS ", TEXT), ("72", HEALTHY), ("/90Hz", TEXT)];
-        assert_eq!(wrist_runs_width(&top, 70), wrist_text_width("FPS 72/90Hz"));
-        let battery = [("BAT H", TEXT), ("99", HEALTHY), ("/L", TEXT),
+        let top = [("FPS:", TEXT), ("72", HEALTHY), ("/90Hz", TEXT)];
+        assert_eq!(wrist_runs_width(&top, 70), wrist_text_width("FPS:72/90Hz"));
+        let battery = [("BAT:H", TEXT), ("99", HEALTHY), ("/L", TEXT),
             ("15", RESOURCE_WARNING), ("/R", TEXT), ("05", RESOURCE_CRITICAL),
             ("%", TEXT)];
-        assert_eq!(wrist_runs_width(&battery, 66), wrist_bottom_text_width("BAT H99/L15/R05%"));
+        assert_eq!(wrist_runs_width(&battery, 66), wrist_bottom_text_width("BAT:H99/L15/R05%"));
         assert!(wrist_row_required(wrist_top_widths()) <= WRIST_WIDTH as i32);
         assert!(wrist_row_required(wrist_bottom_widths()) <= WRIST_WIDTH as i32);
     }

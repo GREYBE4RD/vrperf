@@ -6,9 +6,9 @@
 
 **HEAD** is a larger display fixed to your view. **LEFT** and **RIGHT** use a compact **575 × 160 pixel** panel. The watch has one information row above the graph and another below it.
 
-The top watch row shows measured FPS and target refresh rate together (`FPS 72/90Hz`), CPU/GPU frame time, dropped frames, resolution and local time. The lower row shows headset, left and right controller batteries (`BAT H99/L85/R72%`), CPU utilisation and temperature, system memory (`RAM`), GPU utilisation and temperature, and video memory (`VRA`).
+The top watch row shows measured FPS and target refresh rate together (`FPS:72/90Hz`), CPU/GPU frame time, dropped frames, resolution and local time. The lower row shows headset, left and right controller batteries (`BAT:H99/L85/R72%`), CPU utilisation and temperature, system memory (`RAM`), GPU utilisation and temperature, and video memory (`VRA`).
 
-The watch omits the numeric frame-budget field; its graph still shows the reference line. White text marks fixed labels, units, battery separators, memory totals and target Hz. Normal measurements are green; warning measurements turn orange or red. Missing values are grey. The clock stays white. Each battery is coloured separately, and CPU/GPU graph lines retain their distinct colours.
+In watch mode, headings use colons instead of spaces. CPU/GPU usage and temperature have no space between them (for example `CPU:21%50°`). The watch omits the numeric frame-budget field; its graph still shows the reference line. White text marks fixed labels, units, battery separators, memory totals and target Hz. Normal measurements are green; warning measurements turn orange or red. Missing values are grey. The clock stays white. Each battery is coloured separately, and CPU/GPU graph lines retain their distinct colours.
 
 ## Frame times and graph colours
 
@@ -31,9 +31,9 @@ The graph uses about 65% of its height for times below budget and 35% for times 
 
 ## Values and compact formatting
 
-- **FPS:** The watch rounds measured FPS upward to a whole number and shows the target refresh beside it (for example `FPS 45/90Hz`); HEAD retains its existing precision and a separate Hz field. The target is the headset's SteamVR reported refresh rate (or `--hz` override); if this cannot be read, vrperf defaults to 90 Hz. Measured FPS is green at 95% or more of target, orange at 80% to below 95%, and red below 80%. The status uses the unrounded measurement.
+- **FPS:** The watch rounds measured FPS upward to a whole number and shows the target refresh beside it (for example `FPS:45/90Hz`); HEAD retains its existing precision and a separate Hz field. The target is the headset's SteamVR reported refresh rate (or `--hz` override); if this cannot be read, vrperf defaults to 90 Hz. Measured FPS is green at 95% or more of target, orange at 80% to below 95%, and red below 80%. The status uses the unrounded measurement.
 - **CPU/GPU frame time:** Units are shown as lowercase `ms`. Watch readings below 100 ms use one decimal; larger readings are shortened to fit.
-- **DROP:** Green when zero, red when one or more frames have been dropped (cumulative since the monitor reset). SteamVR compositor dropped-frame count. Large watch values use compact K/M/B/T/P suffixes. This is not a wireless packet-loss counter.
+- **DROP:** SteamVR compositor cumulative dropped-frame count since the current scene or monitor reset. The number is red for five seconds after the latest dropped frame. It returns to green if no further frames drop, even when the cumulative count is nonzero. Each new drop restarts the timer. Large watch values use compact K/M/B/T/P suffixes. This is not a wireless packet-loss counter.
 - **RES:** Combined SteamVR global and per-application resolution percentages, where available. It does not show a game's own upscaling or internal render resolution.
 - **RAM/VRA:** Used/total memory in GiB. The watch omits the `G` suffix and uses `T` for very large TiB quantities.
 - **Temperature:** Rounded to whole degrees Celsius. If unavailable, shows `--°`.

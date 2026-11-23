@@ -1,3 +1,12 @@
+# vrperf v1.41.0 (2026-11-23)
+
+- Use colons between watch headings and readings, for example `FPS:72/90Hz`, `DROP:0`, `BAT:H99/L85/R72%` and `RAM:14/32`.
+- Remove the space between watch CPU/GPU utilisation and temperature, for example `CPU:21%50°` and `GPU:74%58°`.
+- Retain the cumulative dropped-frame count while showing its value in red for five seconds after any new dropped frame. The value returns to green after five seconds without new drops, and the timer restarts on each new drop.
+- Retain the watch's 575 × 160 dimensions, 16-pixel text, 99% display caps, colour thresholds, graph, HEAD display and saved calibration.
+
+---
+
 # vrperf v1.40.0 (2026-11-23)
 
 - Widen the LEFT/RIGHT watch from 550 × 160 to 575 × 160 pixels (25 pixels, about 4.5% wider). Keep its height, 16-pixel-high text, graph style, colours and measurements unchanged.
