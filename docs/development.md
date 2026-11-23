@@ -44,7 +44,7 @@ Run tests and build the binary with:
 cargo test --locked && cargo build --release --locked
 ```
 
-[Release notes](../RELEASE_NOTES.md) document version changes. The GitHub Actions workflow builds the Linux executable when a version tag is pushed or a GitHub release is published, then uploads `vrperf.tar.gz` and `vrperf.tar.gz.sha256`. Release titles and asset filenames do not include a version; Git tags and `vrperf --version` identify each version.
+[Latest release notes](../RELEASE_NOTES.md) describe the current version; [release history](../CHANGELOG.md) preserves all previous notes. The GitHub Actions workflow builds the Linux executable when a version tag is pushed or a GitHub release is published, then uploads `vrperf.tar.gz` and `vrperf.tar.gz.sha256`. Release titles and asset filenames do not include a version; Git tags and `vrperf --version` identify each version.
 
 ## References
 

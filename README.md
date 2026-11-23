@@ -4,7 +4,7 @@ vrperf is a lightweight, native Linux performance overlay for SteamVR, written i
 
 Developed and tested with Arch Linux, SteamVR, Steam Frame and an AMD Radeon RX 9070 XT. Support for other hardware is best effort.
 
-**Source version:** `1.42.0`. Run `vrperf --version` to check the installed binary. Published versions are identified by their Git tags.
+**Source version:** `1.43.0`. Run `vrperf --version` to check the installed binary. Published versions are identified by their Git tags.
 
 ![vrperf performance overlay](screenshots/vrperf.jpg)
 
@@ -118,7 +118,7 @@ See [display readings, graph colours and warning thresholds](docs/display.md), o
 - [Troubleshooting](docs/troubleshooting.md): startup, controller bindings, missing readings and display issues.
 - [Advanced options and saved settings](docs/configuration.md): command-line flags, PNG capture and preference files.
 - [Developer notes](docs/development.md): source layout, rendering and implementation references.
-- [Release notes](RELEASE_NOTES.md): changes by version.
+- [Latest release notes](RELEASE_NOTES.md) and [full release history](CHANGELOG.md).
 
 Report problems through [GitHub Issues](https://github.com/GREYBE4RD/vrperf/issues). Include your Linux distribution, SteamVR version, headset, GPU/driver and relevant terminal output.
 
