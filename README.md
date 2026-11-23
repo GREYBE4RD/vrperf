@@ -58,8 +58,6 @@ Keep SteamVR running for the install step, then fully restart it. For Ubuntu/Deb
 
 ![vrperf dashboard controls](screenshots/vrperf.on.off.jpg)
 
-*The dashboard screenshot shows an older layout. In current versions, ON and OFF are separate buttons near the top.*
-
 **HEAD** stays fixed in your view. A saved LEFT or RIGHT watch appears when you turn it towards your eyes and look at it. It hides when you look or turn away.
 
 **A new or reset watch faces the headset automatically** so you can find it. It stays above its controller and follows your view until you grab it to set a position. See [watch calibration and RESET](docs/calibration.md) for the full behaviour.
