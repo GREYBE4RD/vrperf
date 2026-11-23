@@ -4,7 +4,7 @@
 
 ## HEAD and watch
 
-**HEAD** is a larger display fixed to your view. **LEFT** and **RIGHT** use a compact **550 × 160 pixel** panel. The watch has one information row above the graph and another below it.
+**HEAD** is a larger display fixed to your view. **LEFT** and **RIGHT** use a compact **575 × 160 pixel** panel. The watch has one information row above the graph and another below it.
 
 The top watch row shows measured FPS and target refresh rate together (`FPS 72/90Hz`), CPU/GPU frame time, dropped frames, resolution and local time. The lower row shows headset, left and right controller batteries (`BAT H99/L85/R72%`), CPU utilisation and temperature, system memory (`RAM`), GPU utilisation and temperature, and video memory (`VRA`).
 
@@ -40,7 +40,7 @@ The graph uses about 65% of its height for times below budget and 35% for times 
 
 The watch distributes gaps across both text rows using the widths of currently displayed fields. When readings become longer, it narrows only the horizontal character spacing to keep at least 5 pixels between fields. Characters stay 16 pixels high. A field may move slightly when another field gains digits. The graph and text rows share their outer boundaries.
 
-To fit the compact panel, the watch's bottom-row characters are slightly narrower but remain 16 pixels high. **Watch BAT, CPU and GPU percentages are capped at 99%**: a real 100% reads as 99%. **Temperature readouts in both modes are capped at 99°**, even if the actual value is higher. HEAD utilisation percentages are not capped. These are display limits only: warning colours still use the real measurements.
+To keep the watch compact, the bottom row uses adjustable horizontal character spacing (up to 66% of the HEAD glyph advance) while remaining 16 pixels high. The wider 575-pixel raster provides more space for the same readings than the previous 550-pixel watch. **Watch BAT, CPU and GPU percentages are capped at 99%**: a real 100% reads as 99%. **Temperature readouts in both modes are capped at 99°**, even if the actual value is higher. HEAD utilisation percentages are not capped. These are display limits only: warning colours still use the real measurements.
 
 ## Warning thresholds
 

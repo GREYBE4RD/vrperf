@@ -1,3 +1,12 @@
+# vrperf v1.40.0 (2026-11-23)
+
+- Widen the LEFT/RIGHT watch from 550 × 160 to 575 × 160 pixels (25 pixels, about 4.5% wider). Keep its height, 16-pixel-high text, graph style, colours and measurements unchanged.
+- Allow wider bottom-row characters (preferred advance 66% rather than 63%) and preserve adaptive spacing for unusually long readings. Extend the watch graph and separators to the new right edge.
+- Scale the watch's displayed width in SteamVR with the raster, without changing stored calibration transforms or watch-width settings. HEAD layout is unchanged.
+- Update layout tests, README and technical documentation.
+
+---
+
 # vrperf v1.39.0 (2026-11-22)
 
 - Use the release title `vrperf` without a version suffix. Keep versioned Git tags to identify each release.

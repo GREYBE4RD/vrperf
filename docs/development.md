@@ -6,7 +6,7 @@ vrperf is a native Rust application using OpenVR, direct panel rendering and an 
 
 ## Rendering and measurements
 
-- The watch is **550 × 160 pixels**, with two text rows and one graph. Text remains 16 pixels high; its lower-row glyphs are narrower so temperatures fit.
+- The watch is **575 × 160 pixels**, with two text rows and one graph. Text remains 16 pixels high; its lower-row glyphs use up to 66% of HEAD character advance and can narrow further when necessary.
 - The effective watch width in SteamVR is scaled with the image width. Existing saved placement and width values remain unchanged during layout updates.
 - The normal upload path uses an EGL/OpenGL texture. The application can fall back to `SetOverlayRaw`, which may flicker on some systems.
 - The OpenGL texture allocation is fixed during a run. Changing between HEAD and watch changes the visible region rather than replacing the texture.

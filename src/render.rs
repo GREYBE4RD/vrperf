@@ -10,7 +10,7 @@ pub const WIDTH: usize = 864;
 pub const HEIGHT: usize = 160;
 // Keep the watch compact. Matching the head texture height also avoids
 // vertically cropped OpenGL texture bounds on mode switches.
-pub const WRIST_WIDTH: usize = 550;
+pub const WRIST_WIDTH: usize = 575;
 pub const WRIST_HEIGHT: usize = 160;
 const WRIST_TOP_Y: i32 = 16;
 const WRIST_GRAPH_Y: i32 = 44;
@@ -213,7 +213,7 @@ impl Renderer {
             &[("VRA ", TEXT), (vram_used, memory_colour(hw.vram_used_gib, hw.vram_total_gib)),
                 ("/", TEXT), (vram_total, if vram_total == "--" { MUTED } else { TEXT })],
         ];
-        let bottom_scale = wrist_row_scale(bottom, 63);
+        let bottom_scale = wrist_row_scale(bottom, 66);
         let bottom_widths = bottom.map(|runs| wrist_runs_width(runs, bottom_scale));
         for (runs, x) in bottom.into_iter().zip(wrist_row_positions(bottom_widths)) {
             self.label_wrist_runs(x, WRIST_BOTTOM_Y, runs, bottom_scale);
@@ -279,7 +279,7 @@ impl Renderer {
     }
 
     // Keep a constant 16-pixel font height. Only horizontal advances change
-    // when long values would otherwise exceed the 550-pixel watch width.
+    // when long values would otherwise exceed the 575-pixel watch width.
     fn label_wrist_runs(&mut self, mut x: i32, y: i32,
         runs: &[WristRun<'_>], scale: i32) {
         for &(text, colour) in runs {
@@ -415,11 +415,11 @@ fn wrist_text_width_scaled(text: &str, scale: i32) -> i32 {
 #[cfg(test)]
 fn wrist_text_width(text: &str) -> i32 { wrist_text_width_scaled(text, 70) }
 #[cfg(test)]
-fn wrist_bottom_text_width(text: &str) -> i32 { wrist_text_width_scaled(text, 63) }
+fn wrist_bottom_text_width(text: &str) -> i32 { wrist_text_width_scaled(text, 66) }
 fn wrist_runs_width(runs: &[WristRun<'_>], scale: i32) -> i32 {
     runs.iter().map(|(text, _)| wrist_text_width_scaled(text, scale)).sum()
 }
-// Prioritise legible 70% top and 63% bottom glyph widths. Only condense
+// Prioritise legible 70% top and 66% bottom glyph widths. Only condense
 // toward 50% when a long reading needs more space, never shrink height.
 fn wrist_row_scale<const N: usize>(runs: [&[WristRun<'_>]; N], preferred: i32) -> i32 {
     for scale in (50..=preferred).rev() {
@@ -469,13 +469,13 @@ fn top_row_positions() -> [i32; 7] {
 #[cfg(test)]
 fn wrist_top_widths() -> [i32; 6] {
     ["FPS 999+/240Hz", "CPU 999+ms", "GPU 999+ms", "DROP 999P", "RES 9999%", "23:59"]
-        .map(|text| wrist_text_width_scaled(text, 58))
+        .map(|text| wrist_text_width_scaled(text, 60))
 }
 
 #[cfg(test)]
 fn wrist_bottom_widths() -> [i32; 5] {
     ["BAT H99/L99/R99%", "CPU 99% 99°", "RAM 999T/999T", "GPU 99% 99°", "VRA 999T/999T"]
-        .map(|text| wrist_text_width_scaled(text, 53))
+        .map(|text| wrist_text_width_scaled(text, 56))
 }
 
 // Distribute visible gaps evenly using the *rendered* field widths. Fixed
@@ -714,11 +714,11 @@ mod tests {
         assert_eq!(temperature_colour(Some(f32::NAN)), MUTED);
     }
     #[test]
-    fn watch_footer_with_temperatures_fits_in_550_pixels() {
+    fn watch_footer_with_temperatures_fits_in_575_pixels() {
         let widths = wrist_bottom_widths();
         assert!(wrist_row_required(widths) <= WRIST_WIDTH as i32);
-        assert!(wrist_text_width_scaled("CPU 99% 99°", 53) <= widths[1]);
-        assert!(wrist_text_width_scaled("GPU 99% 99°", 53) <= widths[3]);
+        assert!(wrist_text_width_scaled("CPU 99% 99°", 56) <= widths[1]);
+        assert!(wrist_text_width_scaled("GPU 99% 99°", 56) <= widths[3]);
         let positions = wrist_row_positions(widths);
         assert_eq!(positions[0], 10);
         assert_eq!(positions[4] + widths[4], WRIST_WIDTH as i32 - 10);
@@ -877,7 +877,7 @@ mod tests {
                 WRIST_WIDTH as i32 - 10);
         }
         // The graph starts and ends at the same text boundaries.
-        assert_eq!(WRIST_WIDTH as i32 - 20, 530);
+        assert_eq!(WRIST_WIDTH as i32 - 20, 555);
         assert!(WRIST_TOP_Y >= 16);
         assert!(WRIST_TOP_Y + 16 < 40);
         assert!(WRIST_GRAPH_Y + WRIST_GRAPH_H < 120);
@@ -887,7 +887,7 @@ mod tests {
     fn wrist_labels_fit_in_the_canvas_with_safe_top_padding() {
         let mut r = Renderer::for_mode(Mode::Right);
         let (width, height) = r.dimensions();
-        assert_eq!((width, height), (550, 160));
+        assert_eq!((width, height), (575, 160));
         assert_eq!(wrist_row_positions(wrist_top_widths())[0], 10);
         assert_eq!(wrist_row_positions(wrist_bottom_widths())[0], 10);
         assert!(WRIST_TOP_Y >= 16);
@@ -902,32 +902,32 @@ mod tests {
     }
 
     #[test]
-    fn wrist_worst_case_field_widths_fit_in_550_pixels() {
+    fn wrist_worst_case_field_widths_fit_in_575_pixels() {
         let top = wrist_top_widths();
         let bottom = wrist_bottom_widths();
         for drops in [None, Some(0), Some(9), Some(10), Some(999), Some(1000),
             Some(99999), Some(100000), Some(1000000), Some(1_000_000_000),
             Some(1_000_000_000_000), Some(u64::MAX)] {
-            assert!(wrist_text_width_scaled(&format_wrist_drops(drops), 58) <= top[3]);
+            assert!(wrist_text_width_scaled(&format_wrist_drops(drops), 60) <= top[3]);
         }
         for res in [None, Some(100), Some(150), Some(1000), Some(9999), Some(u16::MAX)] {
-            assert!(wrist_text_width_scaled(&format_wrist_resolution(res), 58) <= top[4]);
+            assert!(wrist_text_width_scaled(&format_wrist_resolution(res), 60) <= top[4]);
         }
         for mem in [(None,None), (Some(14.0),Some(16.0)),
             (Some(128.0),Some(256.0)), (Some(999.0),Some(999.0)),
             (Some(1024.0),Some(2048.0)),
             (Some(f32::MAX),Some(f32::MAX))] {
-            assert!(wrist_text_width_scaled(&format!("RAM {}", used_total_wrist(mem.0,mem.1)), 53) <= bottom[2]);
-            assert!(wrist_text_width_scaled(&format!("VRA {}", used_total_wrist(mem.0,mem.1)), 53) <= bottom[4]);
+            assert!(wrist_text_width_scaled(&format!("RAM {}", used_total_wrist(mem.0,mem.1)), 56) <= bottom[2]);
+            assert!(wrist_text_width_scaled(&format!("VRA {}", used_total_wrist(mem.0,mem.1)), 56) <= bottom[4]);
         }
         for ms in [None,Some(9.2),Some(99.9),Some(99.96),Some(100.0),
             Some(999.0),Some(999.9),Some(1000.0),Some(f32::MAX)] {
-            assert!(wrist_text_width_scaled(&format!("CPU {}",wrist_frame_time_text(ms)), 58) <= top[1]);
-            assert!(wrist_text_width_scaled(&format!("GPU {}",wrist_frame_time_text(ms)), 58) <= top[2]);
+            assert!(wrist_text_width_scaled(&format!("CPU {}",wrist_frame_time_text(ms)), 60) <= top[1]);
+            assert!(wrist_text_width_scaled(&format!("GPU {}",wrist_frame_time_text(ms)), 60) <= top[2]);
         }
     }
     #[test]
-    fn condensed_wrist_values_fit_at_550_pixels() {
+    fn condensed_wrist_values_fit_at_575_pixels() {
         assert_eq!(wrist_frame_time_text(Some(9.2)), "09.2ms");
         assert_eq!(wrist_frame_time_text(Some(99.96)), "100ms");
         assert_eq!(wrist_frame_time_text(Some(100.1)), "100ms");
@@ -951,7 +951,7 @@ mod tests {
             vec!["BAT H18/L09/R79%", "CPU 21% 50°", "RAM 14/31", "GPU 74% 58°", "VRA 11/16"],
             vec!["BAT H99/L99/R99%", "CPU 99% 99°", "RAM 999T/999T", "GPU 99% 99°", "VRA 999T/999T"],
         ] {
-            let preferred = if row.len() == 5 { 63 } else { 70 };
+            let preferred = if row.len() == 5 { 66 } else { 70 };
             // Same scale-search equation as wrist_row_scale, using complete
             // field text because run colour boundaries do not affect widths.
             let scale = (50..=preferred).rev().find(|&scale| {
@@ -992,8 +992,15 @@ mod tests {
         let bottom_e = [("VRA 12/16", TEXT)];
         let normal_bottom = [&bottom_a[..], &bottom_b[..], &bottom_c[..],
             &bottom_d[..], &bottom_e[..]];
-        let scale = wrist_row_scale(normal_bottom, 63);
-        assert!((50..=63).contains(&scale));
+        let scale = wrist_row_scale(normal_bottom, 66);
+        assert!((50..=66).contains(&scale));
+        // The same ordinary readings can use wider characters than on the
+        // previous 550-pixel watch, without reducing the 16-pixel font height.
+        let previous_scale = (50..=63).rev().find(|&scale| {
+            let widths = normal_bottom.map(|runs| wrist_runs_width(runs, scale));
+            widths.iter().sum::<i32>() + 20 + WRIST_ROW_GAP * 4 <= 550
+        }).unwrap();
+        assert!(scale > previous_scale, "wider watch must improve normal text spacing");
         let widths = normal_bottom.map(|runs| wrist_runs_width(runs, scale));
         assert!(wrist_row_required(widths) <= WRIST_WIDTH as i32);
         // The raster always draws each of the eight bitmap rows at 2 pixels.
@@ -1046,7 +1053,7 @@ mod tests {
         let battery = [("BAT H", TEXT), ("99", HEALTHY), ("/L", TEXT),
             ("15", RESOURCE_WARNING), ("/R", TEXT), ("05", RESOURCE_CRITICAL),
             ("%", TEXT)];
-        assert_eq!(wrist_runs_width(&battery, 63), wrist_bottom_text_width("BAT H99/L15/R05%"));
+        assert_eq!(wrist_runs_width(&battery, 66), wrist_bottom_text_width("BAT H99/L15/R05%"));
         assert!(wrist_row_required(wrist_top_widths()) <= WRIST_WIDTH as i32);
         assert!(wrist_row_required(wrist_bottom_widths()) <= WRIST_WIDTH as i32);
     }
@@ -1100,7 +1107,7 @@ mod tests {
     #[test]
     fn panels_are_shorter_but_keep_readable_text() {
         assert_eq!((WIDTH, HEIGHT), (864, 160));
-        assert_eq!((WRIST_WIDTH, WRIST_HEIGHT), (550, 160));
+        assert_eq!((WRIST_WIDTH, WRIST_HEIGHT), (575, 160));
         assert!(138 + 16 < HEIGHT as i32);
         assert!(WRIST_BOTTOM_Y + 16 <= WRIST_HEIGHT as i32 - 14);
         assert!(33 + 76 < 113);

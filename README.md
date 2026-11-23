@@ -4,7 +4,7 @@ vrperf is a lightweight, native Linux performance overlay for SteamVR, written i
 
 Developed and tested with Arch Linux, SteamVR, Steam Frame and an AMD Radeon RX 9070 XT. Support for other hardware is best effort.
 
-**Source version:** `1.39.0`. Run `vrperf --version` to check the installed binary. Published versions are identified by their Git tags.
+**Source version:** `1.40.0`. Run `vrperf --version` to check the installed binary. Published versions are identified by their Git tags.
 
 ![vrperf performance overlay](screenshots/vrperf.jpg)
 
@@ -111,7 +111,7 @@ The graph shows **PC-side CPU and GPU frame times** against the headset's frame-
 
 The watch shows measured FPS beside its target rate, for example `FPS 72/90Hz`, and all three batteries as `BAT H99/L85/R72%`. White text identifies labels, units and fixed totals; green indicates normal measured values. Orange/red marks thresholds, and grey indicates missing values. CPU/GPU graph traces keep their separate colours.
 
-The watch retains a compact **550 × 160** layout. It caps displayed temperatures at **99°** and battery/CPU/GPU percentages at **99%**. Actual values still determine warning colours. Orange temperature warnings start at **80°C** and red at **90°C**. Unsupported sensors display `--°`.
+The watch uses a compact **575 × 160** layout, 25 pixels wider than v1.39.0 for more readable lower-row text. It caps displayed temperatures at **99°** and battery/CPU/GPU percentages at **99%**. Actual values still determine warning colours. Orange temperature warnings start at **80°C** and red at **90°C**. Unsupported sensors display `--°`.
 
 See [display readings, graph colours and warning thresholds](docs/display.md), or [GPU/CPU sensor support and limitations](docs/hardware.md).
 
