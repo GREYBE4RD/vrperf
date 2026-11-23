@@ -15,6 +15,7 @@ pub const WRIST_HEIGHT: usize = 160;
 const WRIST_TOP_Y: i32 = 16;
 const WRIST_GRAPH_Y: i32 = 44;
 const WRIST_GRAPH_H: i32 = 72;
+const WRIST_GRAPH_W: i32 = WRIST_WIDTH as i32 - 20;
 const WRIST_BOTTOM_Y: i32 = 130;
 // BASIC_FONTS is ASCII-only. Supply a small upper-right degree glyph for °C.
 const DEGREE_GLYPH: [u8; 8] = [0b0000_0110, 0b0000_1001, 0b0000_1001, 0b0000_0110, 0, 0, 0, 0];
@@ -138,6 +139,7 @@ impl Renderer {
 
     fn draw_wrist(&mut self, monitor: &FrameMonitor, hw: &HardwareStats,
         devices: &DeviceStats, hz: f32, budget: f32) {
+        let graph_active = monitor.is_recent();
         let latest = monitor.latest();
         let fps = monitor.current_fps(hz);
         let fps_text = wrist_fps_text(fps);
@@ -166,7 +168,8 @@ impl Renderer {
                 wrist_frametime_colour(latest.map(|f| f.cpu_ms), budget)), ("ms", TEXT)],
             &[("GPU:", TEXT), (gpu_ms_value,
                 wrist_frametime_colour(latest.map(|f| f.gpu_ms), budget)), ("ms", TEXT)],
-            &[("DROP:", TEXT), (drops_text, wrist_drop_colour(drops_value, monitor.dropped_recently()))],
+            &[("DROP:", TEXT), (drops_text, wrist_drop_colour(drops_value,
+                watch_drop_bar_visible(&monitor.samples, graph_active)))],
             &[("RES:", TEXT), (resolution_number,
                 if resolution_value.is_some() { HEALTHY } else { MUTED }),
                 (resolution_unit, TEXT)],
@@ -177,10 +180,10 @@ impl Renderer {
         for (runs, x) in top.into_iter().zip(wrist_row_positions(top_widths)) {
             self.label_wrist_runs(x, WRIST_TOP_Y, runs, top_scale);
         }
-        self.rect(10, 40, WRIST_WIDTH as i32 - 20, 1, [59, 76, 94, 255]);
-        self.graph(&monitor.samples, monitor.is_recent(), 10, WRIST_GRAPH_Y,
-            WRIST_WIDTH as i32 - 20, WRIST_GRAPH_H, budget);
-        self.rect(10, 120, WRIST_WIDTH as i32 - 20, 1, [59, 76, 94, 255]);
+        self.rect(10, 40, WRIST_GRAPH_W, 1, [59, 76, 94, 255]);
+        self.graph(&monitor.samples, graph_active, 10, WRIST_GRAPH_Y,
+            WRIST_GRAPH_W, WRIST_GRAPH_H, budget);
+        self.rect(10, 120, WRIST_GRAPH_W, 1, [59, 76, 94, 255]);
 
         let hmd = wrist_battery_percent(devices.hmd);
         let left = wrist_battery_percent(devices.left);
@@ -646,9 +649,15 @@ fn wrist_frametime_colour(ms: Option<f32>, budget: f32) -> [u8; 4] {
         _ => MUTED,
     }
 }
-fn wrist_drop_colour(drops: Option<u64>, dropped_recently: bool) -> [u8; 4] {
+// Use the same active state and sample window that draws the graph's
+// red bars, so DROP returns to green only when the last bar scrolls away.
+fn watch_drop_bar_visible(history: &VecDeque<FrameSample>, active: bool) -> bool {
+    active && history.iter().rev().take(WRIST_GRAPH_W as usize)
+        .any(|frame| frame.dropped > 0)
+}
+fn wrist_drop_colour(drops: Option<u64>, bar_visible: bool) -> [u8; 4] {
     match drops {
-        Some(_) if dropped_recently => RESOURCE_CRITICAL,
+        Some(_) if bar_visible => RESOURCE_CRITICAL,
         Some(_) => HEALTHY,
         None => MUTED,
     }
@@ -1030,6 +1039,33 @@ mod tests {
         assert_eq!(wrist_fps_text(Some(999.1)), "FPS:999+");
         assert_eq!(wrist_fps_text(None), "FPS:--");
         assert_eq!(wrist_fps_text(Some(f32::NAN)), "FPS:--");
+    }
+
+    #[test]
+    fn drop_warning_follows_the_visible_graph_markers() {
+        let mut history = VecDeque::new();
+        let dropped = FrameSample { cpu_ms: 5.0, gpu_ms: 4.0, dropped: 1 };
+        let normal = FrameSample { cpu_ms: 5.0, gpu_ms: 4.0, dropped: 0 };
+        history.push_back(dropped);
+        assert!(watch_drop_bar_visible(&history, true));
+        assert!(!watch_drop_bar_visible(&history, false));
+
+        // A marker at the leftmost graph column still keeps DROP red.
+        for _ in 1..WRIST_GRAPH_W { history.push_back(normal); }
+        assert_eq!(history.len(), WRIST_GRAPH_W as usize);
+        assert!(watch_drop_bar_visible(&history, true));
+        assert_eq!(wrist_drop_colour(Some(1),
+            watch_drop_bar_visible(&history, true)), RESOURCE_CRITICAL);
+
+        // One more frame moves the last red bar outside the graph.
+        history.push_back(normal);
+        assert!(!watch_drop_bar_visible(&history, true));
+        assert_eq!(wrist_drop_colour(Some(1),
+            watch_drop_bar_visible(&history, true)), HEALTHY);
+        history.push_back(dropped);
+        assert!(watch_drop_bar_visible(&history, true));
+        assert_eq!(wrist_drop_colour(Some(2),
+            watch_drop_bar_visible(&history, true)), RESOURCE_CRITICAL);
     }
 
     #[test]

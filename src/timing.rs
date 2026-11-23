@@ -24,8 +24,6 @@ pub struct FrameMonitor {
     frame_times: VecDeque<f64>,
     last_index: Option<u32>,
     last_frame_at: Option<Instant>,
-    // Time of the most recent newly observed dropped frame.
-    last_drop_at: Option<Instant>,
 }
 
 impl FrameMonitor {
@@ -38,7 +36,6 @@ impl FrameMonitor {
             frame_times: VecDeque::with_capacity(256),
             last_index: None,
             last_frame_at: None,
-            last_drop_at: None,
         }
     }
 
@@ -52,7 +49,6 @@ impl FrameMonitor {
         self.fps = None;
         self.dropped = 0;
         self.last_frame_at = None;
-        self.last_drop_at = None;
         // Ignore compositor history from the previous scene at transition.
         self.last_index = compositor.get_frame_timing(0).map(|f| f.m_nFrameIndex);
     }
@@ -86,21 +82,6 @@ impl FrameMonitor {
         (fps.is_finite() && fps > 0.0).then_some(fps as f32)
     }
 
-    // Preserve the cumulative counter but time the warning from the latest drop.
-    fn record_dropped_frames(&mut self, count: u32, observed_at: Instant) {
-        self.dropped = self.dropped.saturating_add(count as u64);
-        if count > 0 { self.last_drop_at = Some(observed_at); }
-    }
-
-    fn dropped_within(&self, now: Instant) -> bool {
-        self.last_drop_at.is_some_and(|last|
-            now.saturating_duration_since(last) < Duration::from_secs(5))
-    }
-
-    pub fn dropped_recently(&self) -> bool {
-        self.dropped_within(Instant::now())
-    }
-
     pub fn poll(&mut self, compositor: &openvr::Compositor) {
         if !self.is_active() { return; }
         let Some(newest) = compositor.get_frame_timing(0) else { return; };
@@ -114,7 +95,6 @@ impl FrameMonitor {
                     self.frame_times.clear();
                     self.fps = None;
                     self.dropped = 0;
-                    self.last_drop_at = None;
                     self.last_index = None;
                     1
                 } else {
@@ -139,11 +119,10 @@ impl FrameMonitor {
             }
             if self.samples.len() == MAX_HISTORY { self.samples.pop_front(); }
             self.samples.push_back(FrameSample { cpu_ms: cpu, gpu_ms: gpu, dropped: frame.m_nNumDroppedFrames });
-            let observed_at = Instant::now();
-            self.record_dropped_frames(frame.m_nNumDroppedFrames, observed_at);
+            self.dropped = self.dropped.saturating_add(frame.m_nNumDroppedFrames as u64);
             self.push_time(frame.m_flSystemTimeInSeconds);
             self.last_index = Some(frame.m_nFrameIndex);
-            self.last_frame_at = Some(observed_at);
+            self.last_frame_at = Some(Instant::now());
         }
     }
 
@@ -170,25 +149,6 @@ mod tests {
         let monitor = FrameMonitor::new();
         assert!(!monitor.is_active());
         assert_eq!(monitor.latest().map(|frame| frame.gpu_ms), None);
-    }
-
-    #[test]
-    fn drop_warning_expires_five_seconds_after_last_drop() {
-        let mut monitor = FrameMonitor::new();
-        let start = Instant::now();
-        assert!(!monitor.dropped_within(start));
-        monitor.record_dropped_frames(2, start);
-        assert_eq!(monitor.dropped, 2);
-        assert!(monitor.dropped_within(start));
-        assert!(monitor.dropped_within(start + Duration::from_secs(4)));
-        assert!(!monitor.dropped_within(start + Duration::from_secs(5)));
-        monitor.record_dropped_frames(0, start + Duration::from_secs(6));
-        assert!(!monitor.dropped_within(start + Duration::from_secs(6)));
-        assert_eq!(monitor.dropped, 2);
-        monitor.record_dropped_frames(1, start + Duration::from_secs(7));
-        assert_eq!(monitor.dropped, 3);
-        assert!(monitor.dropped_within(start + Duration::from_secs(11)));
-        assert!(!monitor.dropped_within(start + Duration::from_secs(12)));
     }
 
     #[test]

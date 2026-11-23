@@ -1,3 +1,11 @@
+# vrperf v1.42.0 (2026-11-23)
+
+- Keep the watch's cumulative DROP value red for exactly as long as a red dropped-frame bar remains visible in the watch graph, rather than for a fixed five-second period.
+- Use the same 555-sample graph window and active state for the DROP text and graph markers; return the text to green when the final red marker scrolls out of view.
+- Remove the unused timer and add a regression test for the last visible graph column. Other layout, colours, readings, saved calibration and HEAD behaviour remain unchanged.
+
+---
+
 # vrperf v1.41.0 (2026-11-23)
 
 - Use colons between watch headings and readings, for example `FPS:72/90Hz`, `DROP:0`, `BAT:H99/L85/R72%` and `RAM:14/32`.
